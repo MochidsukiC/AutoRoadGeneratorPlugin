@@ -10,7 +10,8 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
-import org.bukkit.event.player.PlayerItemHeldEvent; // PlayerItemHeldEventをインポート
+import org.bukkit.event.player.PlayerItemHeldEvent;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -49,22 +50,34 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
     }
 
     /**
-     * リアルタイム更新処理。主にライブドラッグ（ノード移動のプレビュー）を担当します。
+     * リアルタイム更新処理。主にライブドラッグ（ノードまたはアンカー移動のプレビュー）を担当します。
      */
     private void runLiveUpdate(Player player, RouteSession session) {
         UUID selectedNodeId = session.getSelectedNodeId();
-        if (selectedNodeId == null) return; // ノードが選択されていなければ何もしない
+        UUID selectedAnchorId = session.getSelectedAnchorId();
 
-        RouteNode selectedNode = session.getNode(selectedNodeId);
-        if (selectedNode == null) return;
+        if (selectedNodeId == null && selectedAnchorId == null) return; // ノードもアンカーも選択されていなければ何もしない
 
         // 視線の先の位置を取得
-        RayTraceResult result = player.rayTraceBlocks(100.0);
-        if (result == null || result.getHitBlock() == null) return;
-        Location previewLocation = result.getHitBlock().getLocation().add(0.5, 0.5, 0.5);
+        RayTraceResult result = player.rayTraceBlocks(5.0);
+        Location previewLocation = null;
+        if (result == null || result.getHitBlock() == null) {
+            previewLocation = player.getEyeLocation().add(player.getLocation().getDirection().multiply(5));
+        }else {
+            previewLocation = result.getHitBlock().getLocation().add(0.5, 0.5, 0.5);
+        }
 
-        // プレビュー位置に合わせて、関連するエッジのパスを一時的に更新
-        updateConnectedEdges(session, selectedNode, previewLocation);
+        if (selectedNodeId != null) {
+            RouteNode selectedNode = session.getNode(selectedNodeId);
+            if (selectedNode == null) return;
+            // ノード移動のプレビュー
+            updateConnectedEdges(session, selectedNode, previewLocation);
+        } else if (selectedAnchorId != null) {
+            CurveAnchor selectedAnchor = session.getAnchor(selectedAnchorId);
+            if (selectedAnchor == null) return;
+            // アンカー移動のプレビュー
+            runLiveUpdateForAnchor(session, selectedAnchor, previewLocation);
+        }
 
         // 描画処理をメインスレッドにディスパッチ
         plugin.getServer().getScheduler().runTask(plugin, () -> {
@@ -72,8 +85,27 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
         });
     }
 
+    /**
+     * リアルタイム更新処理。主にライブドラッグ（アンカー移動のプレビュー）を担当します。
+     */
+    private void runLiveUpdateForAnchor(RouteSession session, CurveAnchor anchor, Location newLocation) {
+        RouteEdge edge = session.getEdgeWithAnchor(anchor);
+        if (edge == null) return;
+
+        // アンカーのLocationを一時的に上書きしてパスを再計算
+        Location originalAnchorLocation = anchor.getLocation();
+        anchor.setLocation(newLocation);
+        edge.setCalculatedPath(calculator.calculate(edge, session, 0.1, null, null));
+        anchor.setLocation(originalAnchorLocation); // 元に戻す
+    }
+
     @EventHandler
     public void onPlayerInteract(PlayerInteractEvent event) {
+        // メインハンドでのインタラクションのみを処理
+        if (event.getHand() != EquipmentSlot.HAND) {
+            return;
+        }
+
         Player player = event.getPlayer();
         if (!plugin.getEditModePlayers().contains(player.getUniqueId())) return;
 
@@ -81,18 +113,102 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
         if (item == null || item.getType() != Material.BLAZE_ROD || !item.hasItemMeta()) return;
         ItemMeta meta = item.getItemMeta();
         if (meta == null || !meta.getDisplayName().equals(ChatColor.GOLD + "道路ブラシ (Road Brush)")) return;
+        if(player.getCooldown(Material.BLAZE_ROD) > 0) return;
 
         Action action = event.getAction();
-        // ブロック同期を防ぐため、イベントをキャンセル
         event.setCancelled(true);
 
-        // 通常の操作
+        player.setCooldown(Material.BLAZE_ROD,1);
+
+        RouteSession session = plugin.getRouteSession(player.getUniqueId());
+
+        Location interactionLocation = null;
+        Block clickedBlock = event.getClickedBlock(); // handleLeftClick用、およびブロック上のノード検索用
+
+        // プレイヤーの視線が当たっている正確な位置（ブロック上または空中）を取得
+        if(event.getAction() == Action.RIGHT_CLICK_AIR) {
+            RayTraceResult result = player.rayTraceBlocks(5, org.bukkit.FluidCollisionMode.NEVER);
+            if (result != null) {
+                if (result.getHitBlock() != null) {
+                    interactionLocation = result.getHitBlock().getLocation();
+                } else if (result.getHitPosition() != null) {
+                    interactionLocation = result.getHitPosition().toLocation(player.getWorld());
+                }
+            }
+            if (interactionLocation == null) {
+                // RayTraceが何もヒットしなかった場合のフォールバック（空を見上げている場合など）
+                interactionLocation = player.getEyeLocation().add(player.getLocation().getDirection().multiply(5));
+            }
+        }else if(event.getAction() == Action.RIGHT_CLICK_BLOCK) {
+            interactionLocation = event.getClickedBlock().getLocation();
+        }
+
+        // --- アンカー操作の処理 --- (ノード操作より優先)
+        // 視覚的なアンカーブロックの位置から実際のアンカー位置を逆算して検索
+        Location anchorCheckLocation = interactionLocation.clone().subtract(0, 1, 0);
+        UUID nearestAnchorId = session.findNearestAnchorId(anchorCheckLocation);
+        if (nearestAnchorId != null) {
+            handleAnchorClick(player, nearestAnchorId, action);
+            return; // アンカー操作が処理されたら、それ以上の処理は行わない
+        }
+
+        // --- アンカー移動の確定 --- (selectedAnchorIdが設定されている場合)
+        UUID selectedAnchorId = session.getSelectedAnchorId();
+        if (selectedAnchorId != null && action.isRightClick()) {
+            CurveAnchor anchorToMove = session.getAnchor(selectedAnchorId);
+            if (anchorToMove != null) {
+                Location finalAnchorLocation = getAnchorPlacementLocation(interactionLocation);
+                anchorToMove.setLocation(finalAnchorLocation);
+                session.setSelectedAnchorId(null); // 選択解除
+                player.sendMessage(ChatColor.GREEN + "アンカーを移動しました。");
+                updateRoute(player, session);
+            }
+            return;
+        }
+
+        // --- ノード操作の処理 --- (アンカー操作がなかった場合)
         if (action == Action.LEFT_CLICK_BLOCK) {
-            handleLeftClick(player, event.getClickedBlock());
-        } else if (action == Action.RIGHT_CLICK_BLOCK) {
-            handleRightClick(player, event.getClickedBlock());
-        } else if (action == Action.RIGHT_CLICK_AIR) {
-            handleAirRightClick(player);
+            handleLeftClick(player, clickedBlock);
+        } else if (action.isRightClick()) {
+            // 右クリックイベントをノード操作としてまず処理
+            boolean handledByNodeOperation = handleRightClick(player, interactionLocation);
+            if (!handledByNodeOperation) {
+                // ノード操作で処理されなかった場合、エッジ分割として処理
+                handleAirRightClick(player, interactionLocation);
+            }
+        }
+    }
+
+    /**
+     * アンカークリック時のロジック。アンカーの選択、選択解除、削除を処理します。
+     */
+    private void handleAnchorClick(Player player, UUID clickedAnchorId, Action action) {
+        RouteSession session = plugin.getRouteSession(player.getUniqueId());
+
+        if (player.isSneaking()) {
+            // --- アンカー削除処理 --- (Shift + クリック)
+            CurveAnchor anchorToRemove = session.getAnchor(clickedAnchorId);
+            if (anchorToRemove != null) {
+                RouteEdge edge = session.getEdgeWithAnchor(anchorToRemove);
+                if (edge != null) {
+                    edge.setCurveAnchor(null); // エッジからアンカーを解除
+                }
+                session.removeAnchor(clickedAnchorId);
+                player.sendMessage(ChatColor.YELLOW + "アンカーを削除しました。エッジは直線になります。");
+                updateRoute(player, session);
+            }
+        } else {
+            // --- アンカー選択/選択解除処理 --- (通常クリック)
+            if (clickedAnchorId.equals(session.getSelectedAnchorId())) {
+                session.setSelectedAnchorId(null); // 選択解除
+                player.sendMessage(ChatColor.GRAY + "アンカーの選択を解除しました。");
+                updateRoute(player, session); // マーカーの表示更新
+            } else {
+                session.setSelectedAnchorId(clickedAnchorId); // 選択
+                session.setSelectedNodeId(null); // ノード選択を解除
+                player.sendMessage(ChatColor.GREEN + "アンカーを選択しました。右クリックで移動先を確定します。");
+                updateRoute(player, session); // マーカーの表示更新
+            }
         }
     }
 
@@ -169,7 +285,15 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
             RouteNode nodeToRemove = session.getNodes().remove(nearestNodeId);
             if (nodeToRemove != null) {
                 // 関連するエッジもすべて削除
-                session.getEdges().removeIf(edge -> edge.getNode1().equals(nodeToRemove) || edge.getNode2().equals(nodeToRemove));
+                session.getEdges().removeIf(edge -> {
+                    if (edge.getNode1().equals(nodeToRemove) || edge.getNode2().equals(nodeToRemove)) {
+                        if (edge.getCurveAnchor() != null) {
+                            session.removeAnchor(edge.getCurveAnchor().getId()); // 関連アンカーも削除
+                        }
+                        return true;
+                    }
+                    return false;
+                });
                 player.sendMessage(ChatColor.YELLOW + "ノードを削除しました。");
                 // 削除されたノードの元のブロックをプレイヤーに送信して復元
                 plugin.getServer().getScheduler().runTaskLater(plugin,()->player.sendBlockChange(nodeToRemove.getLocation(), nodeToRemove.getLocation().getBlock().getBlockData()),1L);
@@ -183,6 +307,7 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
                 updateRoute(player, session); // パスを元の状態に戻す
             } else {
                 session.setSelectedNodeId(nearestNodeId); // 選択
+                session.setSelectedAnchorId(null); // アンカー選択を解除
                 player.sendMessage(ChatColor.GREEN + "ノードを選択しました。右クリックで移動先を確定します。");
                 updateRoute(player, session); // マーカーの表示更新
             }
@@ -191,28 +316,31 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
 
     /**
      * 右クリック時のロジック。ノードの新規作成、分岐、移動確定を処理します。
+     * @param player 操作プレイヤー
+     * @param interactionLocation プレイヤーがインタラクションした正確な位置 (ブロック上または空中)
+     * @return ノード操作が実行された場合はtrue、それ以外はfalse
      */
-    private void handleRightClick(Player player, Block clickedBlock) {
-        if (clickedBlock == null) return;
+    private boolean handleRightClick(Player player, Location interactionLocation) {
         RouteSession session = plugin.getRouteSession(player.getUniqueId());
-        Location clickedLocation = clickedBlock.getLocation();
         UUID selectedNodeId = session.getSelectedNodeId(); // ノード移動用
 
         // --- ノード移動の確定 ---
         if (selectedNodeId != null) {
             RouteNode nodeToMove = session.getNode(selectedNodeId);
             if (nodeToMove != null) {
-                nodeToMove.setLocation(clickedLocation.clone().add(0.5, 0.5, 0.5));
+                // ノードは常にブロックの中心にスナップ
+                nodeToMove.setLocation(interactionLocation.getBlock().getLocation().add(0.5, 0.5, 0.5));
                 session.setSelectedNodeId(null); // 選択解除
                 player.sendMessage(ChatColor.GREEN + "ノードを移動しました。");
                 updateRoute(player, session);
+                return true;
             }
-            return;
         }
 
         // --- 以下、ノードの追加・接続処理 ---
         UUID branchStartNodeId = session.getBranchStartNodeId();
-        UUID nearestNodeId = session.findNearestNodeId(clickedLocation); // 今回右クリックされたノード
+        // ノード検索はブロック位置で行う
+        UUID nearestNodeId = session.findNearestNodeId(interactionLocation.getBlock().getLocation());
 
         if (branchStartNodeId == null) {
             // 分岐始点がまだ選択されていない場合 (1回目の右クリック)
@@ -221,19 +349,28 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
                 session.setBranchStartNodeId(nearestNodeId);
                 player.sendMessage(ChatColor.AQUA + "分岐の始点を選択しました。次のノードを右クリックして接続してください。");
                 updateRoute(player, session); // マーカーの表示更新
+                return true;
             } else {
                 // 空の空間を右クリック -> 新規ノードを作成
-                RouteNode newNode = new RouteNode(clickedLocation.clone().add(0.5, 0.5, 0.5));
+                // ノードは常にブロックの中心にスナップ
+                RouteNode newNode = new RouteNode(interactionLocation.getBlock().getLocation().add(0.5, 0.5, 0.5));
                 session.addNode(newNode);
                 player.sendMessage(ChatColor.GREEN + (session.getNodes().size() == 1 ? "最初のノード" : "新しいノード") + "を作成しました。");
                 updateRoute(player, session); // マーカーの表示更新
+                return true;
             }
         } else {
             // 分岐始点が既に選択されている場合 (2回目の右クリック)
             RouteNode startNode = session.getNode(branchStartNodeId);
-            RouteNode endNode = (nearestNodeId != null) ? session.getNode(nearestNodeId) : new RouteNode(clickedLocation.clone().add(0.5, 0.5, 0.5));
-            
-            if (nearestNodeId == null) session.addNode(endNode);
+            RouteNode endNode;
+
+            if (nearestNodeId != null) {
+                endNode = session.getNode(nearestNodeId);
+            } else {
+                // 新しい終点ノードを生成（ブロックの中心にスナップ）
+                endNode = new RouteNode(interactionLocation.getBlock().getLocation().add(0.5, 0.5, 0.5));
+                session.addNode(endNode);
+            }
 
             if (startNode != null && !startNode.equals(endNode)) {
                 // 既存のエッジをチェックし、存在すれば削除
@@ -249,30 +386,47 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
 
                 if (existingEdge != null) {
                     session.getEdges().remove(existingEdge);
+                    if (existingEdge.getCurveAnchor() != null) {
+                        session.removeAnchor(existingEdge.getCurveAnchor().getId()); // 関連アンカーも削除
+                    }
                     player.sendMessage(ChatColor.YELLOW + "既存の接続を削除しました。");
-                }else {
-                    // 新しいエッジを作成する際に、現在のエッジモードを適用
-                    session.addEdge(new RouteEdge(startNode, endNode, session.getCurrentEdgeMode()));
-                    player.sendMessage(ChatColor.GREEN + "ノードを接続しました。モード: " + session.getCurrentEdgeMode().name());
-
+                } else {
+                    RouteEdge newEdge = new RouteEdge(startNode, endNode, session.getCurrentEdgeMode());
+                    // ARCまたはCLOTHOIDモードの場合、アンカーを自動生成
+                    if (session.getCurrentEdgeMode() == EdgeMode.ARC || session.getCurrentEdgeMode() == EdgeMode.CLOTHOID) {
+                        Location midPoint = startNode.getLocation().clone().add(endNode.getLocation()).multiply(0.5);
+                        CurveAnchor newAnchor = new CurveAnchor(getAnchorPlacementLocation(midPoint)); // ヘルパーメソッドを使用
+                        session.addAnchor(newAnchor);
+                        newEdge.setCurveAnchor(newAnchor);
+                        player.sendMessage(ChatColor.GREEN + "ノードを接続し、アンカーを作成しました。モード: " + session.getCurrentEdgeMode().name());
+                    } else {
+                        player.sendMessage(ChatColor.GREEN + "ノードを接続しました。モード: " + session.getCurrentEdgeMode().name());
+                    }
+                    session.addEdge(newEdge);
                 }
-
+                session.setBranchStartNodeId(null); // 接続が完了したので分岐始点をリセット
+                updateRoute(player, session);
+                return true;
             } else {
                 player.sendMessage(ChatColor.RED + "同じノードには接続できません。");
+                session.setBranchStartNodeId(null); // 接続失敗でも分岐始点をリセット
+                updateRoute(player, session);
+                return true; // 接続試行は行われたため、処理済みとみなす
             }
-            session.setBranchStartNodeId(null); // 接続が完了したので分岐始点をリセット
-            updateRoute(player, session);
         }
     }
 
-    private void handleAirRightClick(Player player) {
+    /**
+     * 空中右クリック時のロジック。経路上に新しい中継点を追加します（エッジ分割）。
+     * @param player 操作プレイヤー
+     * @param interactionLocation プレイヤーがインタラクションした正確な位置 (空中)
+     */
+    private void handleAirRightClick(Player player, Location interactionLocation) {
         RouteSession session = plugin.getRouteSession(player.getUniqueId());
         if (session.getEdges().isEmpty()) return;
 
-        RayTraceResult result = player.rayTraceBlocks(100.0, org.bukkit.FluidCollisionMode.NEVER);
-        Location targetLocation = (result != null && result.getHitBlock() != null) 
-                                ? result.getHitPosition().toLocation(player.getWorld()) 
-                                : player.getEyeLocation().add(player.getLocation().getDirection().multiply(10));
+        // interactionLocationを直接使用
+        Location targetLocation = interactionLocation;
 
         RouteEdge closestEdge = null;
         double minDistance = Double.MAX_VALUE;
@@ -290,11 +444,19 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
 
         if (closestEdge != null && minDistance < 2.0) {
             session.getEdges().remove(closestEdge);
-            RouteNode newNode = new RouteNode(targetLocation);
+            // エッジ分割で作成される新しいノードは常にブロックの中心にスナップ
+            RouteNode newNode = new RouteNode(targetLocation.getBlock().getLocation().add(0.5, 0.5, 0.5));
             session.addNode(newNode);
-            // 新しいエッジを作成する際に、既存のエッジのEdgeModeを引き継ぐ
-            session.addEdge(new RouteEdge(closestEdge.getNode1(), newNode, closestEdge.getEdgeMode()));
-            session.addEdge(new RouteEdge(newNode, closestEdge.getNode2(), closestEdge.getEdgeMode()));
+
+            RouteEdge newEdge1 = new RouteEdge(closestEdge.getNode1(), newNode, closestEdge.getEdgeMode());
+            RouteEdge newEdge2 = new RouteEdge(newNode, closestEdge.getNode2(), closestEdge.getEdgeMode());
+
+            if (closestEdge.getCurveAnchor() != null) {
+                newEdge1.setCurveAnchor(closestEdge.getCurveAnchor());
+            }
+
+            session.addEdge(newEdge1);
+            session.addEdge(newEdge2);
             player.sendMessage(ChatColor.AQUA + "経路上に新しい中継点を追加しました。");
             updateRoute(player, session);
         }
@@ -335,5 +497,37 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
      */
     private void updateSingleEdge(RouteSession session, RouteEdge edge) {
         edge.setCalculatedPath(calculator.calculate(edge, session, 0.1, null, null));
+    }
+
+    /**
+     * 指定された位置にアンカーを配置する際の最終的なLocationを決定します。
+     * 周囲3ブロック内に固形ブロックがない場合は空中に配置し、そうでない場合はブロックの中心に配置します。
+     * @param targetLocation プレイヤーがインタラクションした位置
+     * @return アンカーが配置されるべき最終的なLocation
+     */
+    private Location getAnchorPlacementLocation(Location targetLocation) {
+        // 周囲3ブロックの範囲に固形ブロックがあるかチェック (7x7x7 cube)
+        boolean hasNearbySolidBlocks = false;
+        for (int x = -3; x <= 3; x++) {
+            for (int y = -3; y <= 3; y++) {
+                for (int z = -3; z <= 3; z++) {
+                    Block block = targetLocation.clone().add(x, y, z).getBlock();
+                    if (block.getType().isSolid()) { // 固形ブロックを検出
+                        hasNearbySolidBlocks = true;
+                        break;
+                    }
+                }
+                if (hasNearbySolidBlocks) break;
+            }
+            if (hasNearbySolidBlocks) break;
+        }
+
+        if (hasNearbySolidBlocks) {
+            // 周囲に固形ブロックがある場合は、クリックされたブロックの中心にスナップ
+            return targetLocation.getBlock().getLocation().add(0.5, 0.5, 0.5);
+        } else {
+            // 周囲に固形ブロックがない場合は、空中にそのまま配置
+            return targetLocation;
+        }
     }
 }

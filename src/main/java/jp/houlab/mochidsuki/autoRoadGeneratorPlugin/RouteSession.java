@@ -16,10 +16,12 @@ import java.util.concurrent.ConcurrentHashMap;
 public class RouteSession {
     private final Map<UUID, RouteNode> nodes = new ConcurrentHashMap<>();
     private final List<RouteEdge> edges = Collections.synchronizedList(new ArrayList<>());
+    private final Map<UUID, CurveAnchor> anchors = new ConcurrentHashMap<>(); // アンカーを追加
     private volatile UUID branchStartNodeId;
     private volatile Location previewLocation;
     private final Map<UUID, Location> markerLocations = new ConcurrentHashMap<>();
     private volatile UUID selectedNodeId;
+    private volatile UUID selectedAnchorId; // 選択中のアンカーIDを追加
     private EdgeMode currentEdgeMode; // 現在選択されているエッジモード
 
     public RouteSession() {
@@ -49,13 +51,34 @@ public class RouteSession {
         return edges;
     }
 
+    public void addAnchor(CurveAnchor anchor) {
+        anchors.put(anchor.getId(), anchor);
+    }
+
+    public CurveAnchor getAnchor(UUID id) {
+        return anchors.get(id);
+    }
+
+    public Map<UUID, CurveAnchor> getAnchors() {
+        return anchors;
+    }
+
+    public void removeAnchor(UUID id) {
+        anchors.remove(id);
+        if (id.equals(selectedAnchorId)) {
+            selectedAnchorId = null;
+        }
+    }
+
     public void clearSession() {
         nodes.clear();
         edges.clear();
+        anchors.clear(); // アンカーもクリア
         this.branchStartNodeId = null;
         this.previewLocation = null;
         this.markerLocations.clear();
         this.selectedNodeId = null;
+        this.selectedAnchorId = null; // 選択中のアンカーもクリア
         this.currentEdgeMode = EdgeMode.STRAIGHT; // セッションクリア時もリセット
     }
 
@@ -87,6 +110,14 @@ public class RouteSession {
         this.selectedNodeId = selectedNodeId;
     }
 
+    public UUID getSelectedAnchorId() {
+        return selectedAnchorId;
+    }
+
+    public void setSelectedAnchorId(UUID selectedAnchorId) {
+        this.selectedAnchorId = selectedAnchorId;
+    }
+
     public EdgeMode getCurrentEdgeMode() {
         return currentEdgeMode;
     }
@@ -112,6 +143,21 @@ public class RouteSession {
         return null; // 範囲内にノードが見つからなかった
     }
 
+    /**
+     * 指定されたブロック位置にアンカーが存在するかどうかを判定し、そのIDを返します。
+     * @param blockLocation 検索するブロックのLocation
+     * @return アンカーのID、見つからなければnull
+     */
+    public UUID findNearestAnchorId(Location blockLocation) {
+        Location searchLocation = blockLocation.getBlock().getLocation();
+        for (CurveAnchor anchor : anchors.values()) {
+            if (anchor.getLocation().getBlock().getLocation().equals(searchLocation)) {
+                return anchor.getId();
+            }
+        }
+        return null;
+    }
+
     public List<RouteEdge> getEdgesConnectedToNode(RouteNode node) {
         List<RouteEdge> connectedEdges = new ArrayList<>();
         for (RouteEdge edge : edges) {
@@ -120,5 +166,19 @@ public class RouteSession {
             }
         }
         return connectedEdges;
+    }
+
+    /**
+     * 指定されたアンカーに関連付けられているエッジを返します。
+     * @param anchor 検索するアンカー
+     * @return アンカーに関連付けられているRouteEdge、見つからなければnull
+     */
+    public RouteEdge getEdgeWithAnchor(CurveAnchor anchor) {
+        for (RouteEdge edge : edges) {
+            if (edge.getCurveAnchor() != null && edge.getCurveAnchor().equals(anchor)) {
+                return edge;
+            }
+        }
+        return null;
     }
 }

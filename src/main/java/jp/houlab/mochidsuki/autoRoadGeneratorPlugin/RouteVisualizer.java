@@ -22,6 +22,8 @@ public class RouteVisualizer {
 
     private final AutoRoadGeneratorPluginMain plugin;
     private final Map<UUID, BukkitTask> particleTasks = new ConcurrentHashMap<>();
+    // アンカーマーカーの位置を管理するマップ
+    private final Map<UUID, Location> anchorMarkerLocations = new ConcurrentHashMap<>();
 
     public RouteVisualizer(AutoRoadGeneratorPluginMain plugin) {
         this.plugin = plugin;
@@ -37,6 +39,7 @@ public class RouteVisualizer {
 
         // マーカーの更新はメインスレッドで即座に行う
         updateMarkers(player, session);
+        updateAnchorMarkers(player, session); // アンカーマーカーも更新
 
         // パーティクル表示タスクを開始 (非同期)
         BukkitTask task = new BukkitRunnable() {
@@ -71,6 +74,7 @@ public class RouteVisualizer {
     public void hideAll(Player player, RouteSession session) {
         stopParticles(player);
         clearMarkers(player, session);
+        clearAnchorMarkers(player, session); // アンカーマーカーもクリア
     }
 
     /**
@@ -84,22 +88,36 @@ public class RouteVisualizer {
     }
 
     /**
-     * プレイヤーに表示されているマーカーブロックをすべて元の状態に戻します。
+     * プレイヤーに表示されているノードマーカーブロックをすべて元の状態に戻します。
      */
     private void clearMarkers(Player player, RouteSession session) {
         if (session != null) {
             // メインスレッドでブロック変更を実行
-            Bukkit.getScheduler().runTask(plugin, () -> {
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
                 for (Location markerLoc : session.getMarkerLocations().values()) {
-                    player.sendBlockChange(markerLoc, Material.AIR.createBlockData());
+                    player.sendBlockChange(markerLoc, markerLoc.getBlock().getBlockData());
                 }
                 session.getMarkerLocations().clear();
+            },0L);
+        }
+    }
+
+    /**
+     * プレイヤーに表示されているアンカーマーカーブロックをすべて元の状態に戻します。
+     */
+    private void clearAnchorMarkers(Player player, RouteSession session) {
+        if (session != null) {
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                for (Location markerLoc : anchorMarkerLocations.values()) {
+                    player.sendBlockChange(markerLoc, markerLoc.getBlock().getBlockData());
+                }
+                anchorMarkerLocations.clear();
             });
         }
     }
 
     /**
-     * マーカーブロックの表示を更新します。
+     * ノードマーカーブロックの表示を更新します。
      * （通常:金、選択中:ダイヤ、分岐始点:エメラルド）
      */
     public void updateMarkers(Player player, RouteSession session) {
@@ -123,6 +141,30 @@ public class RouteVisualizer {
                 Location blockLocation = node.getLocation().getBlock().getLocation();
                 player.sendBlockChange(blockLocation, markerMaterial.createBlockData());
                 session.getMarkerLocations().put(node.getId(), blockLocation);
+            }
+        });
+    }
+
+    /**
+     * アンカーマーカーブロックの表示を更新します。
+     * （通常:避雷針、選択中:レッドストーンブロック）
+     */
+    public void updateAnchorMarkers(Player player, RouteSession session) {
+        clearAnchorMarkers(player, session); // まず既存のアンカーマーカーをクリア
+
+        UUID selectedAnchorId = session.getSelectedAnchorId();
+
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            for (CurveAnchor anchor : session.getAnchors().values()) {
+                Material markerMaterial;
+                if (anchor.getId().equals(selectedAnchorId)) {
+                    markerMaterial = Material.REDSTONE_BLOCK; // 選択中
+                } else {
+                    markerMaterial = Material.LIGHTNING_ROD; // 通常
+                }
+                Location blockLocation = anchor.getLocation().getBlock().getLocation().add(0, 1, 0);
+                player.sendBlockChange(blockLocation, markerMaterial.createBlockData());
+                anchorMarkerLocations.put(anchor.getId(), blockLocation);
             }
         });
     }

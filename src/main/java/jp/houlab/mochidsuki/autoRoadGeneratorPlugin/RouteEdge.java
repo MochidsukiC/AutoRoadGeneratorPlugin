@@ -12,21 +12,21 @@ public class RouteEdge {
     private final RouteNode node2;
     private List<Location> calculatedPath;
     private EdgeMode edgeMode;
-    private Location anchorLocation; // アンカーの位置
+    private CurveAnchor curveAnchor; // アンカーポイントを追加
 
     public RouteEdge(RouteNode node1, RouteNode node2) {
         this(node1, node2, EdgeMode.STRAIGHT, null); // デフォルトで直線モード、アンカーなし
     }
 
     public RouteEdge(RouteNode node1, RouteNode node2, EdgeMode edgeMode) {
-        this(node1, node2, edgeMode, null); // アンカーなしで初期化
+        this(node1, node2, edgeMode, null); // アンカーなし
     }
 
-    public RouteEdge(RouteNode node1, RouteNode node2, EdgeMode edgeMode, Location anchorLocation) {
+    public RouteEdge(RouteNode node1, RouteNode node2, EdgeMode edgeMode, CurveAnchor curveAnchor) {
         this.node1 = node1;
         this.node2 = node2;
         this.edgeMode = edgeMode;
-        this.anchorLocation = anchorLocation;
+        this.curveAnchor = curveAnchor;
     }
 
     public RouteNode getNode1() {
@@ -53,12 +53,28 @@ public class RouteEdge {
         this.edgeMode = edgeMode;
     }
 
-    public Location getAnchorLocation() {
-        return anchorLocation;
+    public CurveAnchor getCurveAnchor() {
+        return curveAnchor;
     }
 
-    public void setAnchorLocation(Location anchorLocation) {
-        this.anchorLocation = anchorLocation;
+    public void setCurveAnchor(CurveAnchor curveAnchor) {
+        this.curveAnchor = curveAnchor;
+    }
+
+    /**
+     * このエッジの、指定されたノードではないもう一方のノードを返します。
+     * @param node このエッジのいずれかのノード
+     * @return 指定されたノードではないもう一方のノード
+     * @throws IllegalArgumentException 指定されたノードがこのエッジの一部ではない場合
+     */
+    public RouteNode getOtherNode(RouteNode node) {
+        if (node1.equals(node)) {
+            return node2;
+        } else if (node2.equals(node)) {
+            return node1;
+        } else {
+            throw new IllegalArgumentException("Node is not part of this edge.");
+        }
     }
 
     @Override
