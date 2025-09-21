@@ -1,0 +1,11 @@
+name: RoadEditor
+version: 1.0-SNAPSHOT
+main: jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain
+api-version: '1.20'
+commands:
+  roadbrush:
+    description: Get a road brush.
+    usage: /roadbrush
+  roadedit:
+    description: Toggle road editing mode.
+    usage: /roadedit edit
