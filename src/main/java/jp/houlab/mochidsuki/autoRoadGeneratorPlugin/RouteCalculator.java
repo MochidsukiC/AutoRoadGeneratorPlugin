@@ -71,7 +71,7 @@ public class RouteCalculator {
         if (!path.get(path.size() - 1).equals(p2)) {
             path.add(p2.clone());
         }
-        return path;
+        return resamplePath(path, 0.5); // 0.5ブロック間隔でパスを再サンプリング
     }
 
     /**
