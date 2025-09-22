@@ -24,6 +24,14 @@ public class BuildCalculationTask extends BukkitRunnable {
      */
     private record LocalBasis(Vector forward, Vector up, Vector right) {}
 
+    /**
+     * A helper record to store pre-processed preset block information.
+     * @param offsetFromAxis The block's position relative to the nearest point on the preset's central axis.
+     * @param distanceAlongPresetAxis The distance (index) along the preset's central axis where the nearest point is found.
+     * @param data The BlockData for this block.
+     */
+    private record ProcessedPresetBlock(Vector offsetFromAxis, double distanceAlongPresetAxis, BlockData data) {}
+
     public BuildCalculationTask(AutoRoadGeneratorPluginMain plugin, UUID playerUUID, RouteSession routeSession, RoadPreset roadPreset, PresetManager presetManager) {
         this.plugin = plugin;
         this.playerUUID = playerUUID;
@@ -42,7 +50,10 @@ public class BuildCalculationTask extends BukkitRunnable {
         // ### ステップA：経路の各点におけるローカル座標系の事前計算 ###
         List<LocalBasis> pathBases = calculatePathBases(path);
 
-        // ### ステップB：3Dプリセットを経路上の各点にスタンプし、体積充填する ###
+        // ### 新しいステップ：プリセットのブロックを「中心軸からのオフセット」に変換 ###
+        List<ProcessedPresetBlock> processedPresetBlocks = preprocessPresetBlocks(roadPreset, path.get(0).getWorld());
+
+        // ### ステップB：道路経路へのマッピングと体積充填 ###
         Map<Location, BlockData> worldBlocks = new ConcurrentHashMap<>();
         World world = path.get(0).getWorld();
         if (world == null) {
@@ -50,40 +61,57 @@ public class BuildCalculationTask extends BukkitRunnable {
             return;
         }
 
-        // プリセットの基準点からの相対座標リスト
-        Map<Vector, BlockData> presetBlocks = roadPreset.getBlocks();
-        List<Vector> presetAxisPath = roadPreset.getAxisPath();
+        // 経路の総距離を計算 (ProcessedPresetBlockのdistanceAlongPresetAxisを正規化するため)
+        double totalPathLength = 0;
+        for (int i = 0; i < path.size() - 1; i++) {
+            totalPathLength += path.get(i).distance(path.get(i + 1));
+        }
 
-        // プリセットの軸の最初の点を基準として、プリセットの軸の相対座標をワールド座標に変換するためのオフセットを計算
-        Vector presetAxisStartRelative = presetAxisPath.isEmpty() ? new Vector(0,0,0) : presetAxisPath.get(0);
+        for (ProcessedPresetBlock processedBlock : processedPresetBlocks) {
+            Vector offsetFromAxis = processedBlock.offsetFromAxis();
+            double distanceAlongPresetAxis = processedBlock.distanceAlongPresetAxis();
+            BlockData blockData = processedBlock.data();
 
-        // --- ループ構造の変更: 経路上の各点をループ --- 
-        for (int i = 0; i < path.size(); i++) {
-            Location currentPathLoc = path.get(i);
-            LocalBasis currentBasis = pathBases.get(i);
+            // プリセット軸上の距離を、計算済み経路のインデックスにマッピング
+            // プリセット軸の長さと計算済み経路の長さの比率を考慮してスケーリング
+            double scaledDistanceAlongPath = (totalPathLength > 0) ? (distanceAlongPresetAxis / totalPathLength) * (path.size() - 1) : 0;
 
-            // --- 内側のループ: roadPresetのblocksマップの各ブロックでループ --- 
-            for (Map.Entry<Vector, BlockData> entry : presetBlocks.entrySet()) {
-                Vector relativePresetBlockPos = entry.getKey(); // (px, py, pz)
-                BlockData blockData = entry.getValue();
+            int targetPathIndex = (int) Math.floor(scaledDistanceAlongPath);
+            double interpolationFactor = scaledDistanceAlongPath - targetPathIndex;
 
-                // プリセットの相対座標を、プリセットの軸の開始点が原点になるように調整
-                Vector adjustedRelative = relativePresetBlockPos.clone().subtract(presetAxisStartRelative);
-
-                // 3D変換式の導入: adjustedRelative を currentPathLoc のローカル座標系を使って回転・変換
-                // rotated_vec = Right_i.clone().multiply(px) + Up_i.clone().multiply(py) + Forward_i.clone().multiply(pz)
-                Vector rotatedOffset = currentBasis.right.clone().multiply(adjustedRelative.getX())
-                                     .add(currentBasis.up.clone().multiply(adjustedRelative.getY()))
-                                     .add(currentBasis.forward.clone().multiply(adjustedRelative.getZ()));
-
-                // 最終的なワールド座標 WorldPos を計算
-                Vector worldBlockVector = currentPathLoc.toVector().add(rotatedOffset).toBlockVector();
-                Location worldBlockLocation = new Location(world, worldBlockVector.getX(), worldBlockVector.getY(), worldBlockVector.getZ());
-                
-                // 計算した WorldPos とブロックデータを Map<Location, BlockData> に格納
-                // Mapを使うことで座標の重複は自動で処理され、体積充填される
-                worldBlocks.put(worldBlockLocation, blockData);
+            // 経路の端点処理
+            if (targetPathIndex >= path.size() - 1) {
+                targetPathIndex = path.size() - 1;
+                interpolationFactor = 0;
             }
+            if (targetPathIndex < 0) {
+                targetPathIndex = 0;
+                interpolationFactor = 0;
+            }
+
+            Location p1 = path.get(targetPathIndex);
+            Location p2 = (targetPathIndex + 1 < path.size()) ? path.get(targetPathIndex + 1) : p1; // 最後の点の場合はP1=P2
+            LocalBasis basis1 = pathBases.get(targetPathIndex);
+            LocalBasis basis2 = (targetPathIndex + 1 < path.size()) ? pathBases.get(targetPathIndex + 1) : basis1; // 最後の点の場合はBasis1=Basis2
+
+            // 位置と基底を線形補間
+            Location interpolatedPathLoc = lerp(p1, p2, interpolationFactor);
+            Vector interpolatedRight = lerp(basis1.right, basis2.right, interpolationFactor).normalize();
+            Vector interpolatedUp = lerp(basis1.up, basis2.up, interpolationFactor).normalize();
+            Vector interpolatedForward = lerp(basis1.forward, basis2.forward, interpolationFactor).normalize();
+
+            // rotated_vec = Right_i.clone().multiply(offsetX) + Up_i.clone().multiply(offsetY) + Forward_i.clone().multiply(offsetZ)
+            Vector rotatedOffset = interpolatedRight.clone().multiply(offsetFromAxis.getX())
+                                 .add(interpolatedUp.clone().multiply(offsetFromAxis.getY()))
+                                 .add(interpolatedForward.clone().multiply(offsetFromAxis.getZ()));
+
+            // 最終的なワールド座標 WorldPos を計算
+            Vector worldBlockVector = interpolatedPathLoc.toVector().add(rotatedOffset).toBlockVector();
+            Location worldBlockLocation = new Location(world, worldBlockVector.getX(), worldBlockVector.getY(), worldBlockVector.getZ());
+            
+            // 計算した WorldPos とブロックデータを Map<Location, BlockData> に格納
+            // Mapを使うことで座標の重複は自動で処理され、体積充填される
+            worldBlocks.put(worldBlockLocation, blockData);
         }
 
         // ### ステップC：外側から内側への設置順ソート ###
@@ -148,6 +176,62 @@ public class BuildCalculationTask extends BukkitRunnable {
     }
 
     /**
+     * Pre-processes the preset blocks to store their offset from the nearest point on the preset's central axis.
+     * This also determines the distance along the preset axis for each block.
+     */
+    private List<ProcessedPresetBlock> preprocessPresetBlocks(RoadPreset roadPreset, World world) {
+        List<ProcessedPresetBlock> processedBlocks = new ArrayList<>();
+        Map<Vector, BlockData> presetBlocks = roadPreset.getBlocks();
+        List<Vector> presetAxisPath = roadPreset.getAxisPath();
+
+        if (presetAxisPath.isEmpty()) {
+            // If preset has no axis path, treat all blocks as offset from (0,0,0) at axis start
+            for (Map.Entry<Vector, BlockData> entry : presetBlocks.entrySet()) {
+                processedBlocks.add(new ProcessedPresetBlock(entry.getKey(), 0.0, entry.getValue()));
+            }
+            return processedBlocks;
+        }
+
+        // Calculate cumulative distances along the preset axis path
+        List<Double> cumulativeDistances = new ArrayList<>();
+        cumulativeDistances.add(0.0);
+        for (int i = 0; i < presetAxisPath.size() - 1; i++) {
+            double segmentLength = presetAxisPath.get(i).distance(presetAxisPath.get(i + 1));
+            cumulativeDistances.add(cumulativeDistances.get(i) + segmentLength);
+        }
+
+        for (Map.Entry<Vector, BlockData> entry : presetBlocks.entrySet()) {
+            Vector relativePresetBlockPos = entry.getKey();
+            BlockData blockData = entry.getValue();
+
+            Vector nearestPointOnPresetAxis = null;
+            double minDistanceSquared = Double.MAX_VALUE;
+            double distanceAlongPresetAxis = 0.0; // Scaled distance along the axis
+
+            // Find the nearest point on the preset axis path for the current block
+            for (int j = 0; j < presetAxisPath.size(); j++) {
+                Vector axisPoint = presetAxisPath.get(j);
+                double distSq = relativePresetBlockPos.distanceSquared(axisPoint);
+
+                if (distSq < minDistanceSquared) {
+                    minDistanceSquared = distSq;
+                    nearestPointOnPresetAxis = axisPoint;
+                    distanceAlongPresetAxis = cumulativeDistances.get(j);
+                }
+            }
+
+            if (nearestPointOnPresetAxis != null) {
+                Vector offsetFromAxis = relativePresetBlockPos.clone().subtract(nearestPointOnPresetAxis);
+                processedBlocks.add(new ProcessedPresetBlock(offsetFromAxis, distanceAlongPresetAxis, blockData));
+            } else {
+                // Fallback if no axis point found (should not happen with non-empty axisPath)
+                processedBlocks.add(new ProcessedPresetBlock(relativePresetBlockPos, 0.0, blockData));
+            }
+        }
+        return processedBlocks;
+    }
+
+    /**
      * Sorts the calculated blocks from the outside layers to the inside.
      */
     private Queue<BlockPlacementInfo> sortBlocksByDistance(Map<Location, BlockData> worldBlocks, List<Location> path) {
@@ -177,7 +261,7 @@ public class BuildCalculationTask extends BukkitRunnable {
         return placementQueue;
     }
 
-    // Locationの線形補間ヘルパーメソッド (今回は使用しないが、将来的な拡張のために残す)
+    // Locationの線形補間ヘルパーメソッド
     private Location lerp(Location loc1, Location loc2, double t) {
         if (!loc1.getWorld().equals(loc2.getWorld())) {
             return loc1;
@@ -188,7 +272,7 @@ public class BuildCalculationTask extends BukkitRunnable {
         return new Location(loc1.getWorld(), x, y, z);
     }
 
-    // Vectorの線形補間ヘルパーメソッド (今回は使用しないが、将来的な拡張のために残す)
+    // Vectorの線形補間ヘルパーメソッド
     private Vector lerp(Vector vec1, Vector vec2, double t) {
         double x = vec1.getX() * (1 - t) + vec2.getX() * t;
         double y = vec1.getY() * (1 - t) + vec2.getY() * t;
