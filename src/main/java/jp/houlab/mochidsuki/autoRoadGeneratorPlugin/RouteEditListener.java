@@ -149,7 +149,7 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
                 // RayTraceが何もヒットしなかった場合のフォールバック（空を見上げている場合など）
                 interactionLocation = player.getEyeLocation().add(player.getLocation().getDirection().multiply(5));
             }
-        }else if(event.getAction() == Action.RIGHT_CLICK_BLOCK) {
+        }else if(event.getAction() == Action.RIGHT_CLICK_BLOCK || event.getAction() == Action.LEFT_CLICK_BLOCK) {
             interactionLocation = event.getClickedBlock().getLocation();
         }
 
