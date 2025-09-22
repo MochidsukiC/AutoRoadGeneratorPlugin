@@ -409,4 +409,45 @@ public class RouteCalculator {
 
         return new Location(p1.getWorld(), x, y, z);
     }
+
+    /**
+     * 指定されたパスを、一定の距離間隔を持つ新しいパスに再サンプリングします。
+     * これにより、カーブや坂でも点の間隔が均一になり、建築時の隙間を防ぎます。
+     * @param originalPath 元の高密度パス
+     * @param stepDistance 新しい点の間隔（例：0.5ブロック）
+     * @return 再サンプリングされたパス
+     */
+    private List<Location> resamplePath(List<Location> originalPath, double stepDistance) {
+        if (originalPath.size() < 2) {
+            return originalPath;
+        }
+
+        List<Location> resampledPath = new ArrayList<>();
+        resampledPath.add(originalPath.get(0).clone()); // 始点を追加
+
+        double distanceCovered = 0.0;
+        for (int i = 0; i < originalPath.size() - 1; i++) {
+            Location current = originalPath.get(i);
+            Location next = originalPath.get(i + 1);
+            Vector segment = next.toVector().subtract(current.toVector());
+            double segmentLength = segment.length();
+
+            while (distanceCovered + segmentLength >= stepDistance) {
+                double remainingDistanceInSegment = stepDistance - distanceCovered;
+                double t = remainingDistanceInSegment / segmentLength;
+                
+                Location newPoint = current.clone().add(segment.clone().multiply(t));
+                resampledPath.add(newPoint);
+                
+                current = newPoint;
+                segment = next.toVector().subtract(current.toVector());
+                segmentLength = segment.length();
+                distanceCovered = 0.0;
+            }
+            distanceCovered += segmentLength;
+        }
+
+        resampledPath.add(originalPath.get(originalPath.size() - 1).clone()); // 終点を追加
+        return resampledPath;
+    }
 }

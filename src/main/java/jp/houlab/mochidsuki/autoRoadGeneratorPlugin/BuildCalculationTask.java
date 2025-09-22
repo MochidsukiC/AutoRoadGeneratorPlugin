@@ -29,55 +29,29 @@ public class BuildCalculationTask extends BukkitRunnable {
     @Override
     public void run() {
         List<Location> path = routeSession.getCalculatedPath();
-        if (path == null || path.size() < 2) {
+        if (path == null || path.isEmpty()) {
             return;
         }
 
         List<LocalBasis> pathBases = calculatePathBases(path);
         Map<Location, BlockData> worldBlocks = new ConcurrentHashMap<>();
         Vector presetOrigin = roadPreset.getAxisPath().isEmpty() ? new Vector(0, 0, 0) : roadPreset.getAxisPath().get(0);
-        
-        // プリセットをZ=0の断面として扱う
-        List<Map.Entry<Vector, BlockData>> presetCrossSection = roadPreset.getBlocks().entrySet().stream()
-                .filter(entry -> entry.getKey().clone().subtract(presetOrigin).getBlockZ() == 0)
-                .collect(Collectors.toList());
 
-        if (presetCrossSection.isEmpty()) {
-            // Z=0に断面がない場合、最もZが小さい断面を代表として使用
-            Optional<Integer> minZ = roadPreset.getBlocks().keySet().stream()
-                    .map(v -> v.clone().subtract(presetOrigin).getBlockZ())
-                    .min(Integer::compareTo);
-            
-            if (minZ.isPresent()) {
-                int finalMinZ = minZ.get();
-                presetCrossSection = roadPreset.getBlocks().entrySet().stream()
-                    .filter(entry -> entry.getKey().clone().subtract(presetOrigin).getBlockZ() == finalMinZ)
-                    .collect(Collectors.toList());
-            } else {
-                 return; // プリセットが空
-            }
-        }
-        
-        // 経路のセグメントごとに断面を押し出す
-        for (int i = 0; i < path.size() - 1; i++) {
-            Location startPoint = path.get(i);
-            Location endPoint = path.get(i + 1);
-            LocalBasis startBasis = pathBases.get(i);
-            LocalBasis endBasis = pathBases.get(i + 1);
+        // 経路上の各点に、プリセット全体を3Dのままスタンプする
+        for (int i = 0; i < path.size(); i++) {
+            Location pathPoint = path.get(i);
+            LocalBasis basis = pathBases.get(i);
 
-            for (Map.Entry<Vector, BlockData> blockEntry : presetCrossSection) {
-                Vector relativePos = blockEntry.getKey().clone().subtract(presetOrigin);
-                BlockData blockData = blockEntry.getValue();
+            for (Map.Entry<Vector, BlockData> entry : roadPreset.getBlocks().entrySet()) {
+                Vector relativeToOrigin = entry.getKey().clone().subtract(presetOrigin);
+                
+                Vector rotatedOffset = basis.right().clone().multiply(relativeToOrigin.getX())
+                                     .add(basis.up().clone().multiply(relativeToOrigin.getY()))
+                                     .add(basis.forward().clone().multiply(relativeToOrigin.getZ()));
 
-                Vector startOffset = startBasis.right().clone().multiply(relativePos.getX())
-                                   .add(startBasis.up().clone().multiply(relativePos.getY()));
-                Location startBlockLoc = startPoint.clone().add(startOffset);
-
-                Vector endOffset = endBasis.right().clone().multiply(relativePos.getX())
-                                 .add(endBasis.up().clone().multiply(relativePos.getY()));
-                Location endBlockLoc = endPoint.clone().add(endOffset);
-
-                fillLine3D(startBlockLoc, endBlockLoc, blockData, worldBlocks);
+                Location worldBlockLocation = pathPoint.clone().add(rotatedOffset);
+                
+                worldBlocks.put(worldBlockLocation.getBlock().getLocation(), entry.getValue());
             }
         }
 
@@ -122,40 +96,6 @@ public class BuildCalculationTask extends BukkitRunnable {
             bases.add(new LocalBasis(finalForward, up, right));
         }
         return bases;
-    }
-
-    private void fillLine3D(Location start, Location end, BlockData data, Map<Location, BlockData> worldBlocks) {
-        int x1 = start.getBlockX(), y1 = start.getBlockY(), z1 = start.getBlockZ();
-        int x2 = end.getBlockX(), y2 = end.getBlockY(), z2 = end.getBlockZ();
-        worldBlocks.put(new Location(start.getWorld(), x1, y1, z1), data);
-        int dx = Math.abs(x2-x1), dy = Math.abs(y2-y1), dz = Math.abs(z2-z1);
-        int sx = x1 < x2 ? 1 : -1, sy = y1 < y2 ? 1 : -1, sz = z1 < z2 ? 1 : -1;
-        int i = 1;
-        if (dx >= dy && dx >= dz) {
-            int err1 = 2*dy - dx, err2 = 2*dz - dx;
-            for (; i <= dx; i++) {
-                worldBlocks.put(new Location(start.getWorld(), x1, y1, z1), data);
-                if (err1 > 0) { y1 += sy; err1 -= 2*dx; }
-                if (err2 > 0) { z1 += sz; err2 -= 2*dx; }
-                err1 += 2*dy; err2 += 2*dz; x1 += sx;
-            }
-        } else if (dy >= dx && dy >= dz) {
-            int err1 = 2*dx-dy, err2 = 2*dz-dy;
-            for (; i <= dy; i++) {
-                worldBlocks.put(new Location(start.getWorld(), x1, y1, z1), data);
-                if (err1 > 0) { x1 += sx; err1 -= 2*dy; }
-                if (err2 > 0) { z1 += sz; err2 -= 2*dy; }
-                err1 += 2*dx; err2 += 2*dz; y1 += sy;
-            }
-        } else {
-            int err1 = 2*dx-dz, err2 = 2*dy-dz;
-            for (; i <= dz; i++) {
-                worldBlocks.put(new Location(start.getWorld(), x1, y1, z1), data);
-                if (err1 > 0) { x1 += sx; err1 -= 2*dz; }
-                if (err2 > 0) { y1 += sy; err2 -= 2*dz; }
-                err1 += 2*dx; err2 += 2*dy; z1 += sz;
-            }
-        }
     }
     
     private Queue<BlockPlacementInfo> sortBlocksByDistance(Map<Location, BlockData> worldBlocks, List<Location> path) {
