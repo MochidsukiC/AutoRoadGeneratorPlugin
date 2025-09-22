@@ -144,6 +144,9 @@ public class BuildCalculationTask extends BukkitRunnable {
                             // BlockDataのクローンを作成して参照共有を防ぐ
                             BlockData clonedBlockData = blockData.clone();
 
+                            // パスポイントの向きに合わせてBlockDataを回転（Facingも一緒に回転）
+                            clonedBlockData = BlockRotationUtil.rotateBlockData(clonedBlockData, Math.toRadians(yaw));
+
                             // 坂を滑らかにするために、ハーフブロックの高さを調整
                             if(clonedBlockData instanceof Slab){
                                 Slab slab = (Slab) clonedBlockData;

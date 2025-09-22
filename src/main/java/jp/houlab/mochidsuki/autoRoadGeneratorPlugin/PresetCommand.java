@@ -158,7 +158,10 @@ public class PresetCommand implements CommandExecutor {
 
                     // ブロック座標に丸めて、新しいローカル座標ベクトルを作成
                     Vector localVector = new Vector(Math.round(px_saved), Math.round(py_saved), Math.round(pz_saved));
-                    blocks.put(localVector, block.getBlockData());
+
+                    // BlockDataを回転してから保存（Facingも一緒に回転）
+                    BlockData rotatedBlockData = BlockRotationUtil.rotateBlockData(block.getBlockData(), rotationAngle);
+                    blocks.put(localVector, rotatedBlockData);
                 }
             }
         }
@@ -266,6 +269,9 @@ public class PresetCommand implements CommandExecutor {
 
         Vector upVector = new Vector(0, 1, 0);
 
+        // プレイヤーの向きに基づく回転角度を計算（貼り付け時のFacing回転用）
+        double pasteRotationAngle = Math.toRadians(yaw);
+
         int blocksPlaced = 0;
 
         // Iterate through slices and place blocks
@@ -287,7 +293,9 @@ public class PresetCommand implements CommandExecutor {
                             .add(rightVector.clone().multiply(-z)); // Note the -z here
 
                         if (worldLocation.getWorld() != null) {
-                            worldLocation.getBlock().setBlockData(blockData, false);
+                            // プレイヤーの向きに合わせてBlockDataを回転（Facingも一緒に回転）
+                            BlockData rotatedBlockData = BlockRotationUtil.rotateBlockData(blockData, pasteRotationAngle);
+                            worldLocation.getBlock().setBlockData(rotatedBlockData, false);
                             blocksPlaced++;
                         }
                     }
