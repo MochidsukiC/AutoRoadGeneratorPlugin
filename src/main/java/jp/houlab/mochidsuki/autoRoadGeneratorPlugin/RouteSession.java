@@ -25,6 +25,7 @@ public class RouteSession {
     private volatile Location originalSelectedAnchorLocation; // 選択中のアンカーの元の位置
     private EdgeMode currentEdgeMode; // 現在選択されているエッジモード
     private AnchorEditMode currentAnchorEditMode; // 現在選択されているアンカー編集モード
+    private List<Location> calculatedPath = new ArrayList<>(); // 追加: 計算された高密度経路
 
     public RouteSession() {
         this.currentEdgeMode = EdgeMode.STRAIGHT; // デフォルトは直線モード
@@ -86,6 +87,7 @@ public class RouteSession {
         this.originalSelectedAnchorLocation = null; // 元の位置もクリア
         this.currentEdgeMode = EdgeMode.STRAIGHT; // セッションクリア時もリセット
         this.currentAnchorEditMode = AnchorEditMode.FREE; // アンカー編集モードもリセット
+        this.calculatedPath.clear(); // 追加: 計算された経路もクリア
     }
 
     public UUID getBranchStartNodeId() {
@@ -207,5 +209,21 @@ public class RouteSession {
             }
         }
         return null;
+    }
+
+    /**
+     * 計算された高密度経路を取得します。
+     * @return 計算された高密度経路のリスト
+     */
+    public List<Location> getCalculatedPath() {
+        return calculatedPath;
+    }
+
+    /**
+     * 計算された高密度経路を設定します。
+     * @param calculatedPath 設定する高密度経路のリスト
+     */
+    public void setCalculatedPath(List<Location> calculatedPath) {
+        this.calculatedPath = calculatedPath;
     }
 }

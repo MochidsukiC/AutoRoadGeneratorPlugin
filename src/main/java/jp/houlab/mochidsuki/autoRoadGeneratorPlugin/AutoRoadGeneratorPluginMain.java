@@ -18,21 +18,29 @@ public class AutoRoadGeneratorPluginMain extends JavaPlugin {
 
     private final Map<UUID, RouteSession> routeSessions = new ConcurrentHashMap<>();
     private final Set<UUID> editModePlayers = Collections.synchronizedSet(new HashSet<>());
+    private final Map<UUID, PresetCreationSession> playerSessions = new ConcurrentHashMap<>();
 
     private RouteCalculator calculator;
     private RouteVisualizer visualizer;
-    private RouteEditListener routeEditListener; // フィールドとして宣言
+    private RouteEditListener routeEditListener;
     private BukkitTask routeEditTask;
+
+    private PresetManager presetManager;
 
     @Override
     public void onEnable() {
         this.calculator = new RouteCalculator();
         this.visualizer = new RouteVisualizer(this);
-        this.routeEditListener = new RouteEditListener(this, calculator, visualizer); // フィールドを初期化
+        this.routeEditListener = new RouteEditListener(this, calculator, visualizer);
+
+        this.presetManager = new PresetManager(this);
 
         getCommand("roadbrush").setExecutor(new BrushCommand(this));
-        getCommand("roadedit").setExecutor(new RoadEditCommand(this, visualizer));
+        getCommand("roadedit").setExecutor(new RoadEditCommand(this, visualizer, presetManager)); // presetManager を追加
+        getCommand("roadpreset").setExecutor(new PresetCommand(this, presetManager, playerSessions));
+
         getServer().getPluginManager().registerEvents(routeEditListener, this);
+        getServer().getPluginManager().registerEvents(new PresetListener(playerSessions), this);
 
         this.routeEditTask = routeEditListener.runTaskTimerAsynchronously(this, 0L, 5L);
 

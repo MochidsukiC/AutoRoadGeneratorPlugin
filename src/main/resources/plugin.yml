@@ -8,4 +8,7 @@ commands:
     usage: /roadbrush
   roadedit:
     description: Toggle road editing mode.
-    usage: /roadedit edit
+    usage: /roadedit <edit|build <preset_name>>
+  roadpreset:
+    description: Manages road presets.
+    usage: /roadpreset <brush|save <name>|paste <name>>

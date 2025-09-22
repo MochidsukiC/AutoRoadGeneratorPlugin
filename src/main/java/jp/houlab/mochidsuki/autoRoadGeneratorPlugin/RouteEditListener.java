@@ -20,6 +20,7 @@ import org.bukkit.util.RayTraceResult;
 import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -501,9 +502,20 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
      * 道路網の計算と描画を更新します。
      */
     public void updateRoute(Player player, RouteSession session) {
+        // 個々のエッジのパスを更新
         for (RouteEdge edge : session.getEdges()) {
             updateSingleEdge(session, edge);
         }
+
+        // すべてのエッジのパスを結合して、RouteSessionのcalculatedPathに設定
+        LinkedHashSet<Location> combinedPath = new LinkedHashSet<>(); // 重複を避けるためにLinkedHashSetを使用
+        for (RouteEdge edge : session.getEdges()) {
+            if (edge.getCalculatedPath() != null) {
+                combinedPath.addAll(edge.getCalculatedPath());
+            }
+        }
+        session.setCalculatedPath(new ArrayList<>(combinedPath));
+
         visualizer.showAll(player, session);
         // ルート更新時にもアクションバーを更新（特にノード移動時など）
         sendActionBar(player, session);
