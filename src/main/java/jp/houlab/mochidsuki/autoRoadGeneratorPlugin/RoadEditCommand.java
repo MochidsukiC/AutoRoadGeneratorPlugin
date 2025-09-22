@@ -91,7 +91,7 @@ public class RoadEditCommand implements CommandExecutor {
             }
 
             player.sendMessage(ChatColor.GREEN + "建築計画の計算を開始します... (プリセット: " + presetName + ")");
-            new BuildCalculationTask(plugin, playerUUID, routeSession, roadPreset, presetManager).runTaskAsynchronously(plugin);
+            new BuildCalculationTask(plugin, playerUUID, routeSession, roadPreset).runTaskAsynchronously(plugin);
             return true;
         } else {
             player.sendMessage(ChatColor.RED + "不明なサブコマンドです。使用法: /roadedit <edit|build <preset_name>>");
