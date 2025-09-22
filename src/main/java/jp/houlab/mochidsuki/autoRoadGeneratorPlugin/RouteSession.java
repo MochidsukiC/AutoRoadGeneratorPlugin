@@ -22,10 +22,13 @@ public class RouteSession {
     private final Map<UUID, Location> markerLocations = new ConcurrentHashMap<>();
     private volatile UUID selectedNodeId;
     private volatile UUID selectedAnchorId; // 選択中のアンカーIDを追加
+    private volatile Location originalSelectedAnchorLocation; // 選択中のアンカーの元の位置
     private EdgeMode currentEdgeMode; // 現在選択されているエッジモード
+    private AnchorEditMode currentAnchorEditMode; // 現在選択されているアンカー編集モード
 
     public RouteSession() {
         this.currentEdgeMode = EdgeMode.STRAIGHT; // デフォルトは直線モード
+        this.currentAnchorEditMode = AnchorEditMode.FREE; // デフォルトはフリーモード
     }
 
     public void addNode(RouteNode node) {
@@ -67,6 +70,7 @@ public class RouteSession {
         anchors.remove(id);
         if (id.equals(selectedAnchorId)) {
             selectedAnchorId = null;
+            originalSelectedAnchorLocation = null; // アンカー削除時もリセット
         }
     }
 
@@ -79,7 +83,9 @@ public class RouteSession {
         this.markerLocations.clear();
         this.selectedNodeId = null;
         this.selectedAnchorId = null; // 選択中のアンカーもクリア
+        this.originalSelectedAnchorLocation = null; // 元の位置もクリア
         this.currentEdgeMode = EdgeMode.STRAIGHT; // セッションクリア時もリセット
+        this.currentAnchorEditMode = AnchorEditMode.FREE; // アンカー編集モードもリセット
     }
 
     public UUID getBranchStartNodeId() {
@@ -116,6 +122,19 @@ public class RouteSession {
 
     public void setSelectedAnchorId(UUID selectedAnchorId) {
         this.selectedAnchorId = selectedAnchorId;
+        if (selectedAnchorId != null) {
+            // アンカーが選択されたらその位置を保存
+            CurveAnchor selectedAnchor = getAnchor(selectedAnchorId);
+            if (selectedAnchor != null) {
+                this.originalSelectedAnchorLocation = selectedAnchor.getLocation().clone();
+            }
+        } else {
+            this.originalSelectedAnchorLocation = null; // 選択解除されたらクリア
+        }
+    }
+
+    public Location getOriginalSelectedAnchorLocation() {
+        return originalSelectedAnchorLocation;
     }
 
     public EdgeMode getCurrentEdgeMode() {
@@ -124,6 +143,14 @@ public class RouteSession {
 
     public void setCurrentEdgeMode(EdgeMode currentEdgeMode) {
         this.currentEdgeMode = currentEdgeMode;
+    }
+
+    public AnchorEditMode getCurrentAnchorEditMode() {
+        return currentAnchorEditMode;
+    }
+
+    public void setCurrentAnchorEditMode(AnchorEditMode currentAnchorEditMode) {
+        this.currentAnchorEditMode = currentAnchorEditMode;
     }
 
     /**

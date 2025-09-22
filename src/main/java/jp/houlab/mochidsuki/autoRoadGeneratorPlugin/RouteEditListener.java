@@ -17,6 +17,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.RayTraceResult;
 
+import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -45,10 +46,8 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
             Player player = plugin.getServer().getPlayer(uuid);
             if (player != null && player.isOnline()) {
                 runLiveUpdate(player, plugin.getRouteSession(uuid));
-                // 接続モードの場合、アクションバーを更新
-                if (plugin.getRouteSession(uuid).getBranchStartNodeId() != null) {
-                    sendEdgeModeActionBar(player, plugin.getRouteSession(uuid));
-                }
+                // アクションバーを更新
+                sendActionBar(player, plugin.getRouteSession(uuid));
             }
         }
     }
@@ -79,8 +78,15 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
         } else if (selectedAnchorId != null) {
             CurveAnchor selectedAnchor = session.getAnchor(selectedAnchorId);
             if (selectedAnchor == null) return;
+
+            // アンカー編集モードに基づいてpreviewLocationを制約
+            Location constrainedPreviewLocation = getConstrainedLocation(
+                    previewLocation,
+                    session.getCurrentAnchorEditMode(),
+                    session.getOriginalSelectedAnchorLocation()
+            );
             // アンカー移動のプレビュー
-            runLiveUpdateForAnchor(session, selectedAnchor, previewLocation);
+            runLiveUpdateForAnchor(session, selectedAnchor, constrainedPreviewLocation);
         }
 
         // 描画処理をメインスレッドにディスパッチ
@@ -161,7 +167,11 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
         if (selectedAnchorId != null && action.isRightClick()) {
             CurveAnchor anchorToMove = session.getAnchor(selectedAnchorId);
             if (anchorToMove != null) {
-                Location finalAnchorLocation = getAnchorPlacementLocation(interactionLocation);
+                Location finalAnchorLocation = getConstrainedLocation(
+                        interactionLocation,
+                        session.getCurrentAnchorEditMode(),
+                        session.getOriginalSelectedAnchorLocation()
+                );
                 anchorToMove.setLocation(finalAnchorLocation);
                 session.setSelectedAnchorId(null); // 選択解除
                 player.sendMessage(ChatColor.GREEN + "アンカーを移動しました。");
@@ -228,6 +238,28 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
 
         RouteSession session = plugin.getRouteSession(player.getUniqueId());
 
+        // アンカーが選択されている場合、アンカー編集モードを切り替える
+        if (session.getSelectedAnchorId() != null) {
+            AnchorEditMode currentMode = session.getCurrentAnchorEditMode();
+            AnchorEditMode newMode;
+
+            // スクロール方向を判定
+            if (event.getNewSlot() > event.getPreviousSlot() || (event.getNewSlot() == 0 && event.getPreviousSlot() == 8)) {
+                // 右スクロール (または8->0へのラップアラウンド)
+                newMode = currentMode.next();
+            } else {
+                // 左スクロール (または0->8へのラップアラウンド)
+                newMode = currentMode.previous();
+            }
+
+            session.setCurrentAnchorEditMode(newMode);
+            player.sendMessage(ChatColor.AQUA + "アンカー編集モードを " + newMode.name() + " に変更しました。");
+            sendActionBar(player, session); // アクションバーを更新
+            updateRoute(player, session);
+            event.setCancelled(true); // ホットバーの切り替えをキャンセル
+            return; // アンカーモード切り替えが処理されたら、これ以上は処理しない
+        }
+
         // 接続モード（branchStartNodeIdが設定されている場合）のみモード変更を許可
         if (session.getBranchStartNodeId() != null) {
             EdgeMode currentMode = session.getCurrentEdgeMode();
@@ -244,7 +276,7 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
 
             session.setCurrentEdgeMode(newMode);
             player.sendMessage(ChatColor.AQUA + "エッジモードを " + newMode.name() + " に変更しました。");
-            sendEdgeModeActionBar(player, session); // アクションバーを更新
+            sendActionBar(player, session); // アクションバーを更新
             updateRoute(player, session);
             event.setCancelled(true); // ホットバーの切り替えをキャンセル
         }
@@ -353,7 +385,7 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
                 // 既存のノードを右クリック -> 分岐始点として選択
                 session.setBranchStartNodeId(nearestNodeId);
                 player.sendMessage(ChatColor.AQUA + "分岐の始点を選択しました。次のノードを右クリックして接続してください。");
-                sendEdgeModeActionBar(player, session); // 接続モードに入ったのでアクションバー表示
+                sendActionBar(player, session); // 接続モードに入ったのでアクションバー表示
                 updateRoute(player, session); // マーカーの表示更新
                 return true;
             } else {
@@ -474,11 +506,7 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
         }
         visualizer.showAll(player, session);
         // ルート更新時にもアクションバーを更新（特にノード移動時など）
-        if (session.getBranchStartNodeId() != null) {
-            sendEdgeModeActionBar(player, session);
-        } else {
-            player.sendActionBar(""); // 接続モードでない場合はクリア
-        }
+        sendActionBar(player, session);
     }
 
     /**
@@ -541,13 +569,56 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
     }
 
     /**
-     * プレイヤーのアクションバーに現在のエッジモードを表示します。
+     * プレイヤーのアクションバーに現在のモードを表示します。
+     * 接続モードまたはアンカー編集モードのいずれかを表示します。
      * @param player 対象プレイヤー
      * @param session プレイヤーのルートセッション
      */
-    private void sendEdgeModeActionBar(Player player, RouteSession session) {
-        String modeName = session.getCurrentEdgeMode().name();
-        String message = ChatColor.GOLD + "現在のエッジモード: " + ChatColor.AQUA + modeName;
+    private void sendActionBar(Player player, RouteSession session) {
+        String message = "";
+        if (session.getSelectedAnchorId() != null) {
+            // アンカーが選択されている場合、アンカー編集モードを表示
+            String modeName = session.getCurrentAnchorEditMode().name();
+            message = ChatColor.GOLD + "アンカー編集モード: " + ChatColor.LIGHT_PURPLE + modeName;
+        } else if (session.getBranchStartNodeId() != null) {
+            // ノード接続モードの場合、エッジモードを表示
+            String modeName = session.getCurrentEdgeMode().name();
+            message = ChatColor.GOLD + "現在のエッジモード: " + ChatColor.AQUA + modeName;
+        }
         player.sendActionBar(message);
+    }
+
+    /**
+     * 指定されたアンカー編集モードに基づいて、Locationを制約します。
+     * @param targetLocation プレイヤーがインタラクションした位置
+     * @param mode 現在のアンカー編集モード
+     * @param originalLocation アンカーが選択された時の元の位置
+     * @return 制約されたLocation
+     */
+    private Location getConstrainedLocation(Location targetLocation, AnchorEditMode mode, @Nullable Location originalLocation) {
+        if (originalLocation == null) {
+            return targetLocation; // 元の位置がなければ制約なし
+        }
+
+        switch (mode) {
+            case FREE:
+                return targetLocation;
+            case Y_AXIS_FIXED:
+                return new Location(
+                        targetLocation.getWorld(),
+                        targetLocation.getX(),
+                        originalLocation.getY(),
+                        targetLocation.getZ()
+                );
+            case Y_AXIS_ONLY:
+                return new Location(
+                        targetLocation.getWorld(),
+                        originalLocation.getX(),
+                        targetLocation.getY(),
+                        originalLocation.getZ()
+                );
+            default:
+                return targetLocation;
+        }
     }
 }
