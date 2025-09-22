@@ -36,10 +36,11 @@ public class BuildCalculationTask extends BukkitRunnable {
         List<Location> path = routeSession.getCalculatedPath();
         if (path == null || path.size() < 2) {
             Bukkit.getLogger().warning("BuildCalculationTask: Path is too short to build for player " + playerUUID);
+            // You might want to send an error message to the player here
             return;
         }
 
-        // 向きが安定したローカル座標系を計算
+        // 向きが安定したローカル座標系を計算 (このメソッドは変更なし)
         List<LocalBasis> pathBases = calculatePathBases(path);
 
         Map<Location, BlockData> worldBlocks = new ConcurrentHashMap<>();
@@ -52,26 +53,33 @@ public class BuildCalculationTask extends BukkitRunnable {
         // プリセットの原点（基準点）は軸の始点
         Vector presetOrigin = roadPreset.getAxisPath().isEmpty() ? new Vector(0,0,0) : roadPreset.getAxisPath().get(0);
 
-        // ステップ1：プリセットを「断面」の集まりとして処理する
-        // プリセットの各ブロックを、そのZ座標（進行距離）ごとにグループ化する
-        Map<Integer, List<Map.Entry<Vector, BlockData>>> presetSlices = roadPreset.getBlocks().entrySet().stream()
+        // ★★★★★★ ここからが修正箇所 ★★★★★★
+
+        // ステップ1：プリセットをZ座標でグループ化し、「正規化された断面リスト」を作成する
+        Map<Integer, List<Map.Entry<Vector, BlockData>>> presetSlicesByZ = roadPreset.getBlocks().entrySet().stream()
                 .collect(Collectors.groupingBy(entry -> entry.getKey().clone().subtract(presetOrigin).getBlockZ()));
 
-        if (presetSlices.isEmpty()) {
+        // Z座標でキーをソートし、インデックス 0, 1, 2... でアクセスできるリストに変換する
+        List<List<Map.Entry<Vector, BlockData>>> sortedSlices = presetSlicesByZ.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(Map.Entry::getValue)
+                .collect(Collectors.toList());
+
+        if (sortedSlices.isEmpty()) {
             Bukkit.getLogger().warning("BuildCalculationTask: Preset has no blocks to place.");
             return;
         }
 
-        // ステップ2：経路のセグメントごとに、対応するプリセット断面を押し出す
+        // ステップ2：経路のセグメントごとに、正規化された断面を順番に押し出す
         for (int i = 0; i < path.size() - 1; i++) {
             Location startPoint = path.get(i);
             Location endPoint = path.get(i + 1);
             LocalBasis startBasis = pathBases.get(i);
+            LocalBasis endBasis = pathBases.get(i + 1);
 
-            // このセグメントに配置すべきプリセットの断面（Z座標がiに対応）を取得
-            // プリセットの長さを超えた場合は、%演算子でプリセットを繰り返す
-            List<Map.Entry<Vector, BlockData>> slice = presetSlices.get(i % presetSlices.size()); 
-            if (slice == null) continue;
+            // ★★★★★★ 断面取得ロジックを修正 ★★★★★★
+            // プリセットの長さを超えた場合は、%演算子でプリセットの断面を繰り返す
+            List<Map.Entry<Vector, BlockData>> slice = sortedSlices.get(i % sortedSlices.size());
 
             // ステップ3：断面内の各ブロックに対して、始点から終点まで線を引く
             for (Map.Entry<Vector, BlockData> blockEntry : slice) {
@@ -84,8 +92,6 @@ public class BuildCalculationTask extends BukkitRunnable {
                 Location startBlockLoc = startPoint.clone().add(startOffset);
 
                 // 終点でのブロックのワールド座標を計算
-                // 次の点の基底を使う
-                LocalBasis endBasis = pathBases.get(i + 1);
                 Vector endOffset = endBasis.right().clone().multiply(relativePos.getX())
                                  .add(endBasis.up().clone().multiply(relativePos.getY()));
                 Location endBlockLoc = endPoint.clone().add(endOffset);
@@ -95,7 +101,7 @@ public class BuildCalculationTask extends BukkitRunnable {
             }
         }
 
-        // 既存のソート処理と設置タスクへの引き渡し
+        // 既存のソート処理と設置タスクへの引き渡し (変更なし)
         Queue<BlockPlacementInfo> placementQueue = sortBlocksByDistance(worldBlocks, path);
         new BuildPlacementTask(plugin, playerUUID, placementQueue).runTask(plugin);
     }
