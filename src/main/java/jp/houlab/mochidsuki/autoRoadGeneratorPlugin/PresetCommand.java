@@ -93,7 +93,6 @@ public class PresetCommand implements CommandExecutor {
             return;
         }
 
-        // Ensure all locations are in the same world
         if (!session.getPos1().getWorld().equals(session.getPos2().getWorld()) ||
             !session.getPos1().getWorld().equals(session.getAxisStart().getWorld()) ||
             !session.getPos1().getWorld().equals(session.getAxisEnd().getWorld())) {
@@ -106,7 +105,6 @@ public class PresetCommand implements CommandExecutor {
         Location axisStart = session.getAxisStart();
         Location axisEnd = session.getAxisEnd();
         
-        // 2. 中心軸の自動推定
         List<Location> rawAxisPath = getLineBetween(axisStart, axisEnd);
         if (rawAxisPath.isEmpty()) {
             player.sendMessage(ChatColor.RED + "中心軸のパスを生成できませんでした。");
@@ -128,8 +126,6 @@ public class PresetCommand implements CommandExecutor {
         // 基準点は変わらず axisStart を使用
         Location referencePoint = axisStart.getBlock().getLocation();
         
-        Map<Vector, BlockData> blocks = new HashMap<>();
-
         Location min = getMinLocation(pos1, pos2);
         Location max = getMaxLocation(pos1, pos2);
 
@@ -138,6 +134,8 @@ public class PresetCommand implements CommandExecutor {
             max.getBlockY() - min.getBlockY() + 1,
             max.getBlockZ() - min.getBlockZ() + 1
         );
+
+        Map<Vector, BlockData> blocks = new HashMap<>();
 
         // ステップ2：各ブロックをスキャンし、ローカル座標に変換する
         for (int x = min.getBlockX(); x <= max.getBlockX(); x++) {
@@ -173,7 +171,7 @@ public class PresetCommand implements CommandExecutor {
         RoadPreset roadPreset = new RoadPreset(presetName, dimensions, blocks, axisPath);
         presetManager.savePreset(roadPreset);
         
-        player.sendMessage(ChatColor.GREEN + "プリセット \'" + presetName + "\' を新しい座標系で保存しました。");
+        player.sendMessage(ChatColor.GREEN + "プリセット '" + presetName + "' を新しい座標系で保存しました。");
         playerSessions.remove(player.getUniqueId());
     }
 
@@ -181,87 +179,51 @@ public class PresetCommand implements CommandExecutor {
         RoadPreset preset = presetManager.loadPreset(presetName);
 
         if (preset == null) {
-            player.sendMessage(ChatColor.RED + "プリセット \'" + presetName + "\' が見つかりませんでした。");
+            player.sendMessage(ChatColor.RED + "プリセット '" + presetName + "' が見つかりませんでした。");
             return;
         }
 
-        // プレイヤーの足元を基準点として貼り付け
         Location pasteReferencePoint = player.getLocation().getBlock().getLocation();
 
-        player.sendMessage(ChatColor.GREEN + "プリセット \'" + presetName + "\' を貼り付け中... (基準点: " + formatLocation(pasteReferencePoint) + ")");
+        player.sendMessage(ChatColor.GREEN + "プリセット '" + presetName + "' を貼り付け中... (基準点: " + formatLocation(pasteReferencePoint) + ")");
 
-        // プリセット内のブロックをワールドに配置
         for (Map.Entry<Vector, BlockData> entry : preset.getBlocks().entrySet()) {
             Vector relativeVector = entry.getKey();
             BlockData blockData = entry.getValue();
 
             Location targetLocation = pasteReferencePoint.clone().add(relativeVector);
-            // ワールドがnullでないことを確認
             if (targetLocation.getWorld() != null) {
-                targetLocation.getBlock().setBlockData(blockData, false); // falseで物理的な更新を抑制
+                targetLocation.getBlock().setBlockData(blockData, false);
             }
         }
 
-        player.sendMessage(ChatColor.GREEN + "プリセット \'" + presetName + "\' の貼り付けが完了しました。");
+        player.sendMessage(ChatColor.GREEN + "プリセット '" + presetName + "' の貼り付けが完了しました。");
     }
 
-    /**
-     * Generates a list of block locations forming a straight line between two points (inclusive).
-     * Uses a simplified 3D line algorithm (linear interpolation).
-     *
-     * @param start The starting location.
-     * @param end The ending location.
-     * @return A list of block locations along the line.
-     */
     private List<Location> getLineBetween(Location start, Location end) {
         List<Location> line = new ArrayList<>();
-
-        int x1 = start.getBlockX();
-        int y1 = start.getBlockY();
-        int z1 = start.getBlockZ();
-
-        int x2 = end.getBlockX();
-        int y2 = end.getBlockY();
-        int z2 = end.getBlockZ();
-
-        int dx = Math.abs(x2 - x1);
-        int dy = Math.abs(y2 - y1);
-        int dz = Math.abs(z2 - z1);
-
-        int N = Math.max(dx, Math.max(dy, dz)); // Number of steps
-
-        if (N == 0) { // Handle case where start and end are the same block
-            line.add(new Location(start.getWorld(), x1, y1, z1));
+        int x1 = start.getBlockX(), y1 = start.getBlockY(), z1 = start.getBlockZ();
+        int x2 = end.getBlockX(), y2 = end.getBlockY(), z2 = end.getBlockZ();
+        int dx = Math.abs(x2 - x1), dy = Math.abs(y2 - y1), dz = Math.abs(z2 - z1);
+        int sx = x1 < x2 ? 1 : -1, sy = y1 < y2 ? 1 : -1, sz = z1 < z2 ? 1 : -1;
+        int N = Math.max(dx, Math.max(dy, dz));
+        if (N == 0) {
+            line.add(start.getBlock().getLocation());
             return line;
         }
-
         for (int i = 0; i <= N; i++) {
             double t = (double) i / N;
-            int currentX = (int) Math.round(x1 + t * (x2 - x1));
-            int currentY = (int) Math.round(y1 + t * (y2 - y1));
-            int currentZ = (int) Math.round(z1 + t * (z2 - z1));
-            line.add(new Location(start.getWorld(), currentX, currentY, currentZ));
+            line.add(new Location(start.getWorld(), x1 + t * (x2 - x1), y1 + t * (y2 - y1), z1 + t * (z2 - z1)).getBlock().getLocation());
         }
-
         return line;
     }
 
     private Location getMinLocation(Location loc1, Location loc2) {
-        return new Location(
-                loc1.getWorld(),
-                Math.min(loc1.getBlockX(), loc2.getBlockX()),
-                Math.min(loc1.getBlockY(), loc2.getBlockY()),
-                Math.min(loc1.getBlockZ(), loc2.getBlockZ())
-        );
+        return new Location(loc1.getWorld(), Math.min(loc1.getX(), loc2.getX()), Math.min(loc1.getY(), loc2.getY()), Math.min(loc1.getZ(), loc2.getZ()));
     }
 
     private Location getMaxLocation(Location loc1, Location loc2) {
-        return new Location(
-                loc1.getWorld(),
-                Math.max(loc1.getBlockX(), loc2.getBlockX()),
-                Math.max(loc1.getBlockY(), loc2.getBlockY()),
-                Math.max(loc1.getBlockZ(), loc2.getBlockZ())
-        );
+        return new Location(loc1.getWorld(), Math.max(loc1.getX(), loc2.getX()), Math.max(loc1.getY(), loc2.getY()), Math.max(loc1.getZ(), loc2.getZ()));
     }
 
     private String formatLocation(Location loc) {

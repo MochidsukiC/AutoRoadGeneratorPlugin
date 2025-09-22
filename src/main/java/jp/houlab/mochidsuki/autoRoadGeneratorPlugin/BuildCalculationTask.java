@@ -34,11 +34,12 @@ public class BuildCalculationTask extends BukkitRunnable {
     @Override
     public void run() {
         List<Location> path = routeSession.getCalculatedPath();
-        if (path == null || path.isEmpty()) {
-            Bukkit.getLogger().warning("BuildCalculationTask: Path is empty for player " + playerUUID);
+        if (path == null || path.size() < 2) {
+            Bukkit.getLogger().warning("BuildCalculationTask: Path is too short to build for player " + playerUUID);
             return;
         }
 
+        // 向きが安定したローカル座標系を計算
         List<LocalBasis> pathBases = calculatePathBases(path);
 
         Map<Location, BlockData> worldBlocks = new ConcurrentHashMap<>();
@@ -48,71 +49,49 @@ public class BuildCalculationTask extends BukkitRunnable {
             return;
         }
 
-        // ステップ1：経路の各点の「始点からの累積距離」を計算する
-        List<Double> cumulativeDistances = new ArrayList<>();
-        cumulativeDistances.add(0.0);
-        for (int i = 0; i < path.size() - 1; i++) {
-            double segmentLength = path.get(i).distance(path.get(i + 1));
-            cumulativeDistances.add(cumulativeDistances.get(i) + segmentLength);
-        }
-        double totalPathLength = cumulativeDistances.get(cumulativeDistances.size() - 1);
-
-        // プリセットの基準点を取得 (軸の始点)
-        // presetAxisPathが空の場合はVector(0,0,0)を返す
+        // プリセットの原点（基準点）は軸の始点
         Vector presetOrigin = roadPreset.getAxisPath().isEmpty() ? new Vector(0,0,0) : roadPreset.getAxisPath().get(0);
 
-        // ステップ2：プリセットの各ブロックを、対応する経路上の位置に配置する (最初のプリセット)
-        for (Map.Entry<Vector, BlockData> entry : roadPreset.getBlocks().entrySet()) {
-            Vector localPos = entry.getKey(); // (px, py, pz)
-            BlockData blockData = entry.getValue();
+        // ステップ1：プリセットを「断面」の集まりとして処理する
+        // プリセットの各ブロックを、そのZ座標（進行距離）ごとにグループ化する
+        Map<Integer, List<Map.Entry<Vector, BlockData>>> presetSlices = roadPreset.getBlocks().entrySet().stream()
+                .collect(Collectors.groupingBy(entry -> entry.getKey().clone().subtract(presetOrigin).getBlockZ()));
 
-            // プリセット内の進行距離 = pz
-            double presetDistance = localPos.getZ(); 
-
-            // ステップ3：プリセットの進行距離に最も近い、経路上の点を見つける
-            int targetPathIndex = findClosestPathIndex(cumulativeDistances, presetDistance);
-            if (targetPathIndex == -1) continue; // 経路外の点は無視
-
-            Location pathPoint = path.get(targetPathIndex);
-            LocalBasis basis = pathBases.get(targetPathIndex);
-
-            // プリセット内のXYオフセットを取得
-            double px = localPos.getX();
-            double py = localPos.getY();
-
-            // ローカル座標系を使ってXYオフセットを回転・変換
-            Vector rotatedOffset = basis.right().clone().multiply(px)
-                                 .add(basis.up().clone().multiply(py));
-
-            // ワールド座標を計算
-            Location worldBlockLocation = pathPoint.clone().add(rotatedOffset);
-            
-            worldBlocks.put(worldBlockLocation.getBlock().getLocation(), blockData);
+        if (presetSlices.isEmpty()) {
+            Bukkit.getLogger().warning("BuildCalculationTask: Preset has no blocks to place.");
+            return;
         }
 
-        // ステップ4：道路全体をプリセットの繰り返しで充填する
-        double presetLength = calculatePresetLength(roadPreset);
-        if (presetLength > 0) {
-            // 最初のプリセットは既に配置済みなので、presetLengthから開始
-            for (double distanceOffset = presetLength; distanceOffset < totalPathLength; distanceOffset += presetLength) {
-                for (Map.Entry<Vector, BlockData> entry : roadPreset.getBlocks().entrySet()) {
-                    Vector localPos = entry.getKey();
-                    BlockData blockData = entry.getValue();
+        // ステップ2：経路のセグメントごとに、対応するプリセット断面を押し出す
+        for (int i = 0; i < path.size() - 1; i++) {
+            Location startPoint = path.get(i);
+            Location endPoint = path.get(i + 1);
+            LocalBasis startBasis = pathBases.get(i);
 
-                    double presetDistance = localPos.getZ() + distanceOffset;
+            // このセグメントに配置すべきプリセットの断面（Z座標がiに対応）を取得
+            // プリセットの長さを超えた場合は、%演算子でプリセットを繰り返す
+            List<Map.Entry<Vector, BlockData>> slice = presetSlices.get(i % presetSlices.size()); 
+            if (slice == null) continue;
 
-                    int targetPathIndex = findClosestPathIndex(cumulativeDistances, presetDistance);
-                    if (targetPathIndex == -1) continue; // 経路外の点は無視
+            // ステップ3：断面内の各ブロックに対して、始点から終点まで線を引く
+            for (Map.Entry<Vector, BlockData> blockEntry : slice) {
+                Vector relativePos = blockEntry.getKey().clone().subtract(presetOrigin);
+                BlockData blockData = blockEntry.getValue();
 
-                    Location pathPoint = path.get(targetPathIndex);
-                    LocalBasis basis = pathBases.get(targetPathIndex);
+                // 始点でのブロックのワールド座標を計算
+                Vector startOffset = startBasis.right().clone().multiply(relativePos.getX())
+                                   .add(startBasis.up().clone().multiply(relativePos.getY()));
+                Location startBlockLoc = startPoint.clone().add(startOffset);
 
-                    Vector rotatedOffset = basis.right().clone().multiply(localPos.getX())
-                                         .add(basis.up().clone().multiply(localPos.getY()));
-                    
-                    Location worldBlockLocation = pathPoint.clone().add(rotatedOffset);
-                    worldBlocks.put(worldBlockLocation.getBlock().getLocation(), blockData);
-                }
+                // 終点でのブロックのワールド座標を計算
+                // 次の点の基底を使う
+                LocalBasis endBasis = pathBases.get(i + 1);
+                Vector endOffset = endBasis.right().clone().multiply(relativePos.getX())
+                                 .add(endBasis.up().clone().multiply(relativePos.getY()));
+                Location endBlockLoc = endPoint.clone().add(endOffset);
+
+                // ステップ4：3次元ブレゼンハムアルゴリズムで2点間をブロックで充填
+                fillLine3D(startBlockLoc, endBlockLoc, blockData, worldBlocks);
             }
         }
 
@@ -122,59 +101,111 @@ public class BuildCalculationTask extends BukkitRunnable {
     }
 
     /**
-     * Calculates the local coordinate system (basis) for each point along the path.
-     * Forward vector is based on horizontal movement to prevent unintended tilting.
+     * 経路上の各点における、向きが安定したローカル座標系（基底）を計算します。
+     * 直前の座標系と比較することで、急なカーブでの左右の反転を防ぎます。
      */
     private List<LocalBasis> calculatePathBases(List<Location> path) {
         List<LocalBasis> bases = new ArrayList<>();
-        Vector lastHorizontalForward = new Vector(0, 0, 1); // デフォルトの水平進行方向 (北)
+        if (path.isEmpty()) {
+            return bases;
+        }
+
+        Vector lastRight = null; // 直前の「右方向」ベクトルを記憶
 
         for (int i = 0; i < path.size(); i++) {
-            Vector actual3DForward; // This will be the 'forward' in LocalBasis
-            Vector tempHorizontalForward; // Used for calculating 'right' to ensure horizontal orientation
-
+            // --- 進行方向 (Forward) ベクトルの計算 ---
+            Vector forward;
             if (i < path.size() - 1) {
-                // 次の点への方向
-                actual3DForward = path.get(i + 1).toVector().subtract(path.get(i).toVector());
+                forward = path.get(i + 1).toVector().subtract(path.get(i).toVector());
             } else if (i > 0) {
-                // 最後の点の場合、前のセグメントの方向を流用
-                actual3DForward = path.get(i).toVector().subtract(path.get(i - 1).toVector());
-            }
-            else {
-                // 経路が1点しかない場合
-                actual3DForward = new Vector(0, 0, 1); // デフォルトの3D方向 (北)
-            }
-
-            // Normalize actual3DForward if it's not a zero vector
-            if (actual3DForward.lengthSquared() < 1e-6) {
-                actual3DForward = new Vector(0, 0, 1); // Fallback for degenerate segment
+                forward = path.get(i).toVector().subtract(path.get(i - 1).toVector());
             } else {
-                actual3DForward.normalize();
+                forward = new Vector(0, 0, 1); // 点が1つしかない場合のデフォルト
             }
+            if (forward.lengthSquared() < 1e-6) forward = new Vector(0, 0, 1);
+            forward.normalize();
 
-            // Calculate horizontal component for 'right' vector calculation
-            tempHorizontalForward = new Vector(actual3DForward.getX(), 0, actual3DForward.getZ());
-            if (tempHorizontalForward.lengthSquared() < 1e-6) {
-                // Path is vertical, reuse the last valid horizontal forward direction
-                tempHorizontalForward = lastHorizontalForward.clone();
-            } else {
-                tempHorizontalForward.normalize();
-                lastHorizontalForward = tempHorizontalForward.clone(); // Save for next vertical segment
-            }
+            // --- ローカル座標系の計算 ---
+            Vector up = new Vector(0, 1, 0);
+            Vector right = up.clone().crossProduct(forward);
 
-            Vector up = new Vector(0, 1, 0); // ワールドの上方向
-            Vector right = up.clone().crossProduct(tempHorizontalForward).normalize(); // Up x HorizontalForward
-
-            // Fallback for right if it becomes a zero vector (e.g., up and tempHorizontalForward are parallel)
+            // 水平でない経路(上下移動)の場合、rightがゼロベクトルになる可能性があるためフォールバック
             if (right.lengthSquared() < 1e-6) {
-                right = new Vector(1, 0, 0); // Default to World's East
-                right.normalize();
+                // 前方ベクトルがY軸に平行な場合、ワールドのX軸を仮の「右」とする
+                right = new Vector(1, 0, 0);
             }
+            right.normalize();
 
-            // LocalBasisには実際の3D進行方向を格納
-            bases.add(new LocalBasis(actual3DForward, up, right));
+            // --- ★左右反転防止ロジック★ ---
+            if (lastRight != null) {
+                // 現在の「右」ベクトルが、直前の「右」ベクトルと逆を向いているかチェック
+                if (right.dot(lastRight) < 0) {
+                    // 逆を向いている場合、反転させて向きを維持する
+                    right.multiply(-1);
+                }
+            }
+            lastRight = right.clone(); // 現在の「右」を次の計算のために記憶
+
+            // 最終的な進行方向は、安定したRightとUpから再計算して直交性を保証する
+            Vector finalForward = right.clone().crossProduct(up).normalize();
+
+            bases.add(new LocalBasis(finalForward, up, right));
         }
         return bases;
+    }
+
+    /**
+     * 3次元ブレゼンハムアルゴリズムを用いて、2点間をブロックで充填します。
+     * 結果はworldBlocksマップに直接追加されます。
+     */
+    private void fillLine3D(Location start, Location end, BlockData data, Map<Location, BlockData> worldBlocks) {
+        int x1 = start.getBlockX(), y1 = start.getBlockY(), z1 = start.getBlockZ();
+        int x2 = end.getBlockX(), y2 = end.getBlockY(), z2 = end.getBlockZ();
+
+        int dx = Math.abs(x2 - x1);
+        int dy = Math.abs(y2 - y1);
+        int dz = Math.abs(z2 - z1);
+
+        int sx = x1 < x2 ? 1 : -1;
+        int sy = y1 < y2 ? 1 : -1;
+        int sz = z1 < z2 ? 1 : -1;
+
+        if (dx >= dy && dx >= dz) { // X軸が最も変化が大きい場合
+            int err1 = 2 * dy - dx;
+            int err2 = 2 * dz - dx;
+            while (x1 != x2) {
+                worldBlocks.put(new Location(start.getWorld(), x1, y1, z1), data);
+                if (err1 > 0) { y1 += sy; err1 -= 2 * dx; }
+                if (err2 > 0) { z1 += sz; err2 -= 2 * dx; }
+                err1 += 2 * dy;
+                err2 += 2 * dz;
+                x1 += sx;
+            }
+        } else if (dy >= dx && dy >= dz) { // Y軸が最も変化が大きい場合
+            int err1 = 2 * dx - dy;
+            int err2 = 2 * dz - dy;
+            while (y1 != y2) {
+                worldBlocks.put(new Location(start.getWorld(), x1, y1, z1), data);
+                if (err1 > 0) { x1 += sx; err1 -= 2 * dy; }
+                if (err2 > 0) { z1 += sz; err2 -= 2 * dy; }
+                err1 += 2 * dx;
+                err2 += 2 * dz;
+                y1 += sy;
+            }
+        } else { // Z軸が最も変化が大きい場合
+            int err1 = 2 * dx - dz;
+            int err2 = 2 * dy - dz;
+            while (z1 != z2) {
+                worldBlocks.put(new Location(start.getWorld(), x1, y1, z1), data);
+                if (err1 > 0) { x1 += sx; err1 -= 2 * dz; }
+                if (err2 > 0) { y1 += sy; err2 -= 2 * dz; }
+                err1 += 2 * dx;
+                err2 += 2 * dy;
+                z1 += sz;
+            }
+        }
+        // 最後の点を追加
+        worldBlocks.put(new Location(start.getWorld(), x2, y2, z2), data);
     }
 
     /**
@@ -205,58 +236,5 @@ public class BuildCalculationTask extends BukkitRunnable {
         sortedBlocksByDistance.descendingKeySet().forEach(distance -> placementQueue.addAll(sortedBlocksByDistance.get(distance)));
 
         return placementQueue;
-    }
-
-    /**
-     * プリセットの軸の長さを計算します。
-     */
-    private double calculatePresetLength(RoadPreset preset) {
-        List<Vector> axis = preset.getAxisPath();
-        if (axis == null || axis.size() < 2) {
-            return 0.0;
-        }
-        // Z座標の最大と最小の差を長さとします
-        double minZ = axis.stream().mapToDouble(Vector::getZ).min().orElse(0.0);
-        double maxZ = axis.stream().mapToDouble(Vector::getZ).max().orElse(0.0);
-        return maxZ - minZ;
-    }
-
-    /**
-     * 累積距離リストの中から、指定された距離に最も近い点のインデックスを探索します。
-     */
-    private int findClosestPathIndex(List<Double> cumulativeDistances, double targetDistance) {
-        int index = Collections.binarySearch(cumulativeDistances, targetDistance);
-        if (index >= 0) {
-            return index; // 完全一致
-        } else {
-            // 挿入ポイントから最も近いインデックスを返す
-            int insertionPoint = -(index + 1);
-            if (insertionPoint == 0) return 0;
-            if (insertionPoint == cumulativeDistances.size()) return cumulativeDistances.size() - 1;
-            
-            double distToPrev = targetDistance - cumulativeDistances.get(insertionPoint - 1);
-            double distToNext = cumulativeDistances.get(insertionPoint) - targetDistance;
-            
-            return (distToPrev < distToNext) ? (insertionPoint - 1) : insertionPoint;
-        }
-    }
-
-    // Locationの線形補間ヘルパーメソッド (今回は使用しないが、将来的な拡張のために残す)
-    private Location lerp(Location loc1, Location loc2, double t) {
-        if (!loc1.getWorld().equals(loc2.getWorld())) {
-            return loc1;
-        }
-        double x = loc1.getX() * (1 - t) + loc2.getX() * t;
-        double y = loc1.getY() * (1 - t) + loc2.getY() * t;
-        double z = loc1.getZ() * (1 - t) + loc2.getZ() * t;
-        return new Location(loc1.getWorld(), x, y, z);
-    }
-
-    // Vectorの線形補間ヘルパーメソッド (今回は使用しないが、将来的な拡張のために残す)
-    private Vector lerp(Vector vec1, Vector vec2, double t) {
-        double x = vec1.getX() * (1 - t) + vec2.getX() * t;
-        double y = vec1.getY() * (1 - t) + vec2.getY() * t;
-        double z = vec1.getZ() * (1 - t) + vec2.getZ() * t;
-        return new Vector(x, y, z);
     }
 }
