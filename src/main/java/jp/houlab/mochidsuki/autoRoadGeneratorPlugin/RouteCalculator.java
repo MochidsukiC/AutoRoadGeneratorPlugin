@@ -14,8 +14,7 @@ import java.util.UUID;
  */
 public class RouteCalculator {
 
-    // private static final double DEFAULT_ARC_SAGITTA_FACTOR = 0.25; // 弦の長さに対する円弧の高さの比率 (不要になった)
-    private static final double DEFAULT_CLOTHOID_BEND_FACTOR = 0.5; // クロソイドの曲がり具合の係数
+
     private static final double TANGENT_LENGTH_FACTOR = 0.5; // 接線ベクトルの長さを決定する係数
 
     /**
@@ -39,37 +38,47 @@ public class RouteCalculator {
         EdgeMode edgeMode = edge.getEdgeMode();
         CurveAnchor anchor = edge.getCurveAnchor(); // アンカーを取得
 
-        // 始点と終点は必ずパスに含める
-        path.add(p1.clone());
-
         // 接線ベクトルを計算
         // P1における接線は、P_prev -> P1 の方向
         Vector tangent1 = getTangentVectorForNode(node1, session, edge, p1Override, true);
         // P2における接線は、P2 -> P_next の方向
         Vector tangent2 = getTangentVectorForNode(node2, session, edge, p2Override, false);
 
+        // 始点と終点は必ずパスに含める
+        Location startPoint = p1.clone();
+        // 始点のヨー角とピッチ角を設定
+        Vector startDirection = tangent1.normalize();
+        float startYaw = (float) Math.toDegrees(Math.atan2(startDirection.getZ(), startDirection.getX()));
+        float startPitch = (float) Math.toDegrees(Math.asin(-startDirection.getY()));
+        startPoint.setYaw(startYaw);
+        startPoint.setPitch(startPitch);
+        path.add(startPoint);
+
         switch (edgeMode) {
             case STRAIGHT:
-                for (double t = step; t < 1.0; t += step) {
-                    path.add(lerp(p1, p2, t));
-                }
+                calculateStraightWithYaw(p1, p2, step, path);
                 break;
             case ARC:
-                calculateArc(p1, p2, tangent1, tangent2, anchor, step, path);
+                calculateArcWithYaw(p1, p2, tangent1, tangent2, anchor, step, path);
                 break;
             case CLOTHOID:
-                calculateClothoidApproximation(p1, p2, tangent1, tangent2, anchor, step, path);
+                calculateClothoidApproximationWithYaw(p1, p2, tangent1, tangent2, anchor, step, path);
                 break;
             default:
                 // 未定義のモードの場合も線形補間
-                for (double t = step; t < 1.0; t += step) {
-                    path.add(lerp(p1, p2, t));
-                }
+                calculateStraightWithYaw(p1, p2, step, path);
                 break;
         }
         // 終点も必ずパスに含める（重複を避けるため、最後のステップで追加）
         if (!path.get(path.size() - 1).equals(p2)) {
-            path.add(p2.clone());
+            Location endPoint = p2.clone();
+            // 終点のヨー角とピッチ角を設定
+            Vector endDirection = tangent2.normalize();
+            float endYaw = (float) Math.toDegrees(Math.atan2(endDirection.getZ(), endDirection.getX()));
+            float endPitch = (float) Math.toDegrees(Math.asin(-endDirection.getY()));
+            endPoint.setYaw(endYaw);
+            endPoint.setPitch(endPitch);
+            path.add(endPoint);
         }
         return resamplePath(path, 0.5); // 0.5ブロック間隔でパスを再サンプリング
     }
@@ -411,6 +420,80 @@ public class RouteCalculator {
     }
 
     /**
+     * 直線でヨー角とピッチ角付きの点を計算します。
+     */
+    private void calculateStraightWithYaw(Location p1, Location p2, double step, List<Location> path) {
+        Vector direction = p2.toVector().subtract(p1.toVector()).normalize();
+        float yaw = (float) Math.toDegrees(Math.atan2(direction.getZ(), direction.getX()));
+        float pitch = (float) Math.toDegrees(Math.asin(-direction.getY()));
+
+        for (double t = step; t < 1.0; t += step) {
+            Location interpolated = lerp(p1, p2, t);
+            interpolated.setYaw(yaw);
+            interpolated.setPitch(pitch);
+            path.add(interpolated);
+        }
+    }
+
+    /**
+     * 円弧でヨー角とピッチ角付きの点を計算します。
+     */
+    private void calculateArcWithYaw(Location p1, Location p2, Vector tangent1, Vector tangent2, @Nullable CurveAnchor anchor, double step, List<Location> path) {
+        // 元のcalculateArcロジックを使用しつつ、各点でヨー角とピッチ角を計算
+        calculateArc(p1, p2, tangent1, tangent2, anchor, step, path);
+
+        // 生成された各点にヨー角とピッチ角を設定
+        for (int i = 1; i < path.size(); i++) {
+            Location current = path.get(i);
+            Location previous = path.get(i - 1);
+
+            Vector tangent = current.toVector().subtract(previous.toVector()).normalize();
+            float yaw = (float) Math.toDegrees(Math.atan2(tangent.getZ(), tangent.getX()));
+            float pitch = (float) Math.toDegrees(Math.asin(-tangent.getY()));
+            current.setYaw(yaw);
+            current.setPitch(pitch);
+        }
+
+        // 最初の点のヨー角とピッチ角も設定
+        if (path.size() > 1) {
+            Vector firstTangent = tangent1.normalize();
+            float firstYaw = (float) Math.toDegrees(Math.atan2(firstTangent.getZ(), firstTangent.getX()));
+            float firstPitch = (float) Math.toDegrees(Math.asin(-firstTangent.getY()));
+            path.get(0).setYaw(firstYaw);
+            path.get(0).setPitch(firstPitch);
+        }
+    }
+
+    /**
+     * クロソイドでヨー角とピッチ角付きの点を計算します。
+     */
+    private void calculateClothoidApproximationWithYaw(Location p1, Location p2, Vector tangent1, Vector tangent2, @Nullable CurveAnchor anchor, double step, List<Location> path) {
+        // 元のcalculateClothoidApproximationロジックを使用しつつ、各点でヨー角とピッチ角を計算
+        calculateClothoidApproximation(p1, p2, tangent1, tangent2, anchor, step, path);
+
+        // 生成された各点にヨー角とピッチ角を設定
+        for (int i = 1; i < path.size(); i++) {
+            Location current = path.get(i);
+            Location previous = path.get(i - 1);
+
+            Vector tangent = current.toVector().subtract(previous.toVector()).normalize();
+            float yaw = (float) Math.toDegrees(Math.atan2(tangent.getZ(), tangent.getX()));
+            float pitch = (float) Math.toDegrees(Math.asin(-tangent.getY()));
+            current.setYaw(yaw);
+            current.setPitch(pitch);
+        }
+
+        // 最初の点のヨー角とピッチ角も設定
+        if (path.size() > 1) {
+            Vector firstTangent = tangent1.normalize();
+            float firstYaw = (float) Math.toDegrees(Math.atan2(firstTangent.getZ(), firstTangent.getX()));
+            float firstPitch = (float) Math.toDegrees(Math.asin(-firstTangent.getY()));
+            path.get(0).setYaw(firstYaw);
+            path.get(0).setPitch(firstPitch);
+        }
+    }
+
+    /**
      * 指定されたパスを、一定の距離間隔を持つ新しいパスに再サンプリングします。
      * これにより、カーブや坂でも点の間隔が均一になり、建築時の隙間を防ぎます。
      * @param originalPath 元の高密度パス
@@ -423,7 +506,7 @@ public class RouteCalculator {
         }
 
         List<Location> resampledPath = new ArrayList<>();
-        resampledPath.add(originalPath.get(0).clone()); // 始点を追加
+        resampledPath.add(originalPath.get(0).clone()); // 始点を追加（ヨー角とピッチ角も保持）
 
         double distanceCovered = 0.0;
         for (int i = 0; i < originalPath.size() - 1; i++) {
@@ -435,10 +518,38 @@ public class RouteCalculator {
             while (distanceCovered + segmentLength >= stepDistance) {
                 double remainingDistanceInSegment = stepDistance - distanceCovered;
                 double t = remainingDistanceInSegment / segmentLength;
-                
+
                 Location newPoint = current.clone().add(segment.clone().multiply(t));
+
+                // ヨー角とピッチ角を補間
+                float currentYaw = current.getYaw();
+                float nextYaw = next.getYaw();
+                float currentPitch = current.getPitch();
+                float nextPitch = next.getPitch();
+
+                // ヨー角の補間（循環を考慮）
+                float yawDifference = nextYaw - currentYaw;
+                if (yawDifference > 180) {
+                    yawDifference -= 360;
+                } else if (yawDifference < -180) {
+                    yawDifference += 360;
+                }
+                float interpolatedYaw = currentYaw + yawDifference * (float) t;
+
+                // ピッチ角の補間（循環を考慮）
+                float pitchDifference = nextPitch - currentPitch;
+                if (pitchDifference > 180) {
+                    pitchDifference -= 360;
+                } else if (pitchDifference < -180) {
+                    pitchDifference += 360;
+                }
+                float interpolatedPitch = currentPitch + pitchDifference * (float) t;
+
+                newPoint.setYaw(interpolatedYaw);
+                newPoint.setPitch(interpolatedPitch);
+
                 resampledPath.add(newPoint);
-                
+
                 current = newPoint;
                 segment = next.toVector().subtract(current.toVector());
                 segmentLength = segment.length();
@@ -447,7 +558,7 @@ public class RouteCalculator {
             distanceCovered += segmentLength;
         }
 
-        resampledPath.add(originalPath.get(originalPath.size() - 1).clone()); // 終点を追加
+        resampledPath.add(originalPath.get(originalPath.size() - 1).clone()); // 終点を追加（ヨー角とピッチ角も保持）
         return resampledPath;
     }
 }

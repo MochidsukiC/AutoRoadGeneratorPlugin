@@ -4,14 +4,13 @@ import org.bukkit.Bukkit;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.util.Vector;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 public class PresetManager {
 
@@ -28,36 +27,58 @@ public class PresetManager {
     }
 
     public void savePreset(RoadPreset preset) {
+        // Convert legacy format to slice-based format before saving
+        RoadPreset sliceBasedPreset = convertToSliceBased(preset);
+        saveSliceBasedPreset(sliceBasedPreset);
+    }
+
+    private void saveSliceBasedPreset(RoadPreset preset) {
         File presetFile = new File(presetsFolder, preset.getName() + ".yml");
         YamlConfiguration config = new YamlConfiguration();
 
         config.set("name", preset.getName());
-        config.set("dimensions.x", preset.getDimensions().getX());
-        config.set("dimensions.y", preset.getDimensions().getY());
-        config.set("dimensions.z", preset.getDimensions().getZ());
+        config.set("format", "slice-based");
+        config.set("lengthX", preset.getLengthX());
+        config.set("widthZ", preset.getWidthZ());
+        config.set("heightY", preset.getHeightY());
+        config.set("axisZOffset", preset.getAxisZOffset());
+        config.set("axisYOffset", preset.getAxisYOffset());
 
-        // Serialize blocks map
-        Map<String, String> serializedBlocks = preset.getBlocks().entrySet().stream()
-                .collect(Collectors.toMap(
-                        entry -> vectorToString(entry.getKey()),
-                        entry -> entry.getValue().getAsString()
-                ));
-        config.set("blocks", serializedBlocks);
+        // Serialize slices
+        if (preset.getSlices() != null) {
+            for (int x = 0; x < preset.getSlices().size(); x++) {
+                RoadPreset.PresetSlice slice = preset.getSlices().get(x);
+                String sliceKey = "slices." + x;
 
-        // Serialize axis path
-        List<String> serializedAxisPath = preset.getAxisPath().stream()
-                .map(this::vectorToString)
-                .collect(Collectors.toList());
-        config.set("axisPath", serializedAxisPath);
+                config.set(sliceKey + ".xPosition", slice.getXPosition());
+
+                // Serialize YZ grid
+                for (int z = 0; z < slice.getWidthZ(); z++) {
+                    for (int y = 0; y < slice.getHeightY(); y++) {
+                        BlockData blockData = slice.getBlock(z, y);
+                        if (blockData != null) {
+                            config.set(sliceKey + ".blocks." + z + "," + y, blockData.getAsString());
+                        }
+                    }
+                }
+            }
+        }
 
         try {
             config.save(presetFile);
-            loadedPresets.put(preset.getName(), preset); // Cache the saved preset
-            plugin.getLogger().info("Preset '" + preset.getName() + "' saved successfully.");
+            loadedPresets.put(preset.getName(), preset);
+            plugin.getLogger().info("Preset '" + preset.getName() + "' saved successfully (slice-based format).");
         } catch (IOException e) {
             plugin.getLogger().severe("Could not save preset '" + preset.getName() + "': " + e.getMessage());
         }
     }
+
+    private RoadPreset convertToSliceBased(RoadPreset legacyPreset) {
+        // This method is no longer needed since we removed legacy support
+        // Return the preset as-is since it's already slice-based
+        return legacyPreset;
+    }
+
 
     public RoadPreset loadPreset(String name) {
         if (loadedPresets.containsKey(name)) {
@@ -71,47 +92,56 @@ public class PresetManager {
         }
 
         YamlConfiguration config = YamlConfiguration.loadConfiguration(presetFile);
+        String format = config.getString("format", "legacy");
 
-        String presetName = config.getString("name");
-        Vector dimensions = new Vector(
-                config.getDouble("dimensions.x"),
-                config.getDouble("dimensions.y"),
-                config.getDouble("dimensions.z")
-        );
+        RoadPreset preset = loadSliceBasedPreset(config);
 
-        // Deserialize blocks map
-        Map<String, Object> rawBlocks = config.getConfigurationSection("blocks").getValues(false);
-        Map<Vector, BlockData> blocks = rawBlocks.entrySet().stream()
-                .collect(Collectors.toMap(
-                        entry -> stringToVector(entry.getKey()),
-                        entry -> Bukkit.createBlockData(String.valueOf(entry.getValue())) // Safely convert Object to String
-                ));
+        if (preset != null) {
+            loadedPresets.put(name, preset);
+            plugin.getLogger().info("Preset '" + name + "' loaded successfully (" + format + " format).");
+        }
 
-        // Deserialize axis path
-        List<String> serializedAxisPath = config.getStringList("axisPath");
-        List<Vector> axisPath = serializedAxisPath.stream()
-                .map(this::stringToVector)
-                .collect(Collectors.toList());
-
-        RoadPreset preset = new RoadPreset(presetName, dimensions, blocks, axisPath);
-        loadedPresets.put(name, preset); // Cache the loaded preset
-        plugin.getLogger().info("Preset '" + name + "' loaded successfully.");
         return preset;
     }
 
-    private String vectorToString(Vector vector) {
-        return vector.getBlockX() + "," + vector.getBlockY() + "," + vector.getBlockZ();
+    private RoadPreset loadSliceBasedPreset(YamlConfiguration config) {
+        String presetName = config.getString("name");
+        int lengthX = config.getInt("lengthX");
+        int widthZ = config.getInt("widthZ");
+        int heightY = config.getInt("heightY");
+        int axisZOffset = config.getInt("axisZOffset", widthZ / 2);  // Default to center for legacy files
+        int axisYOffset = config.getInt("axisYOffset", heightY / 2);
+
+        List<RoadPreset.PresetSlice> slices = new ArrayList<>();
+
+        for (int x = 0; x < lengthX; x++) {
+            String sliceKey = "slices." + x;
+            int xPosition = config.getInt(sliceKey + ".xPosition", x);
+
+            RoadPreset.PresetSlice slice = new RoadPreset.PresetSlice(xPosition, widthZ, heightY);
+
+            // Load blocks for this slice
+            if (config.contains(sliceKey + ".blocks")) {
+                Map<String, Object> blockData = config.getConfigurationSection(sliceKey + ".blocks").getValues(false);
+                for (Map.Entry<String, Object> entry : blockData.entrySet()) {
+                    String[] coords = entry.getKey().split(",");
+                    if (coords.length == 2) {
+                        try {
+                            int z = Integer.parseInt(coords[0]);
+                            int y = Integer.parseInt(coords[1]);
+                            BlockData block = Bukkit.createBlockData(String.valueOf(entry.getValue()));
+                            slice.setBlock(z, y, block);
+                        } catch (NumberFormatException e) {
+                            plugin.getLogger().warning("Invalid coordinate format in preset: " + entry.getKey());
+                        }
+                    }
+                }
+            }
+
+            slices.add(slice);
+        }
+
+        return new RoadPreset(presetName, slices, lengthX, widthZ, heightY, axisZOffset, axisYOffset);
     }
 
-    private Vector stringToVector(String s) {
-        String[] parts = s.split(",");
-        if (parts.length != 3) {
-            throw new IllegalArgumentException("Invalid vector string format: " + s);
-        }
-        return new Vector(
-                Integer.parseInt(parts[0]),
-                Integer.parseInt(parts[1]),
-                Integer.parseInt(parts[2])
-        );
-    }
 }

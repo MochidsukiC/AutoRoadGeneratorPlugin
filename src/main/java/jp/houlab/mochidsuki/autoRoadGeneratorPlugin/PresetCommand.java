@@ -120,20 +120,19 @@ public class PresetCommand implements CommandExecutor {
         }
         presetForward.normalize();
 
-        Vector presetUp = new Vector(0, 1, 0);
-        Vector presetRight = presetUp.clone().crossProduct(presetForward).normalize();
+        // Calculate the rotation angle to align presetForward with the positive X-axis
+        // The angle is from the positive X-axis to presetForward
+        double rotationAngle = Math.atan2(presetForward.getZ(), presetForward.getX());
+
+        // Calculate cosine and sine for the rotation by -rotationAngle around Y-axis
+        double cosRot = Math.cos(-rotationAngle);
+        double sinRot = Math.sin(-rotationAngle);
 
         // 基準点は変わらず axisStart を使用
         Location referencePoint = axisStart.getBlock().getLocation();
         
         Location min = getMinLocation(pos1, pos2);
         Location max = getMaxLocation(pos1, pos2);
-
-        Vector dimensions = new Vector(
-            max.getBlockX() - min.getBlockX() + 1,
-            max.getBlockY() - min.getBlockY() + 1,
-            max.getBlockZ() - min.getBlockZ() + 1
-        );
 
         Map<Vector, BlockData> blocks = new HashMap<>();
 
@@ -146,13 +145,19 @@ public class PresetCommand implements CommandExecutor {
                     // ワールド座標系での相対ベクトルを計算
                     Vector worldOffset = block.getLocation().toVector().subtract(referencePoint.toVector());
 
-                    // ステップ3：ドット積（内積）を使ってローカル座標 (px, py, pz) を求める
-                    double px = worldOffset.dot(presetRight);
-                    double py = worldOffset.dot(presetUp);
-                    double pz = worldOffset.dot(presetForward);
+                    // Apply rotation to worldOffset to align the original presetForward with the new X-axis
+                    double rotatedX = worldOffset.getX() * cosRot - worldOffset.getZ() * sinRot;
+                    double rotatedZ = worldOffset.getX() * sinRot + worldOffset.getZ() * cosRot;
+                    Vector rotatedWorldOffset = new Vector(rotatedX, worldOffset.getY(), rotatedZ);
+
+                    // ステップ3：ローカル座標 (px, py, pz) を求める
+                    // rotatedWorldOffsetの成分がそのまま新しいローカル座標となる
+                    double px_saved = rotatedWorldOffset.getX();
+                    double py_saved = rotatedWorldOffset.getY();
+                    double pz_saved = rotatedWorldOffset.getZ();
 
                     // ブロック座標に丸めて、新しいローカル座標ベクトルを作成
-                    Vector localVector = new Vector(Math.round(px), Math.round(py), Math.round(pz));
+                    Vector localVector = new Vector(Math.round(px_saved), Math.round(py_saved), Math.round(pz_saved));
                     blocks.put(localVector, block.getBlockData());
                 }
             }
@@ -162,13 +167,70 @@ public class PresetCommand implements CommandExecutor {
         List<Vector> axisPath = new ArrayList<>();
         for (Location loc : rawAxisPath) {
             Vector worldOffset = loc.toVector().subtract(referencePoint.toVector());
-            double px = worldOffset.dot(presetRight);
-            double py = worldOffset.dot(presetUp);
-            double pz = worldOffset.dot(presetForward);
-            axisPath.add(new Vector(Math.round(px), Math.round(py), Math.round(pz)));
+            
+            // Apply rotation to worldOffset
+            double rotatedX = worldOffset.getX() * cosRot - worldOffset.getZ() * sinRot;
+            double rotatedZ = worldOffset.getX() * sinRot + worldOffset.getZ() * cosRot;
+            Vector rotatedWorldOffset = new Vector(rotatedX, worldOffset.getY(), rotatedZ);
+
+            double px_saved = rotatedWorldOffset.getX();
+            double py_saved = rotatedWorldOffset.getY();
+            double pz_saved = rotatedWorldOffset.getZ();
+            axisPath.add(new Vector(Math.round(px_saved), Math.round(py_saved), Math.round(pz_saved)));
         }
 
-        RoadPreset roadPreset = new RoadPreset(presetName, dimensions, blocks, axisPath);
+        // Convert to slice-based format
+        // Step 1: Find bounds in local coordinate system
+        int minX = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE;
+        int minY = Integer.MAX_VALUE, maxY = Integer.MIN_VALUE;
+        int minZ = Integer.MAX_VALUE, maxZ = Integer.MIN_VALUE;
+
+        for (Vector pos : blocks.keySet()) {
+            minX = Math.min(minX, pos.getBlockX());
+            maxX = Math.max(maxX, pos.getBlockX());
+            minY = Math.min(minY, pos.getBlockY());
+            maxY = Math.max(maxY, pos.getBlockY());
+            minZ = Math.min(minZ, pos.getBlockZ());
+            maxZ = Math.max(maxZ, pos.getBlockZ());
+        }
+
+        int lengthX = maxX - minX + 1;
+        int heightY = maxY - minY + 1;
+        int widthZ = maxZ - minZ + 1;
+
+        // Step 2: Find axis origin in local coordinate system
+        Vector axisOrigin = axisPath.isEmpty() ? new Vector(0, 0, 0) : axisPath.get(0);
+
+        // Step 3: Calculate axis position within array bounds
+        int axisZOffset = axisOrigin.getBlockZ() - minZ;
+        int axisYOffset = axisOrigin.getBlockY() - minY;
+
+        // Step 4: Create slices
+        List<RoadPreset.PresetSlice> slices = new ArrayList<>();
+
+        for (int x = minX; x <= maxX; x++) {
+            RoadPreset.PresetSlice slice = new RoadPreset.PresetSlice(x - minX, widthZ, heightY);
+
+            for (Vector pos : blocks.keySet()) {
+                if (pos.getBlockX() == x) {
+                    // Calculate relative position from axis origin
+                    int relativeZ = pos.getBlockZ() - axisOrigin.getBlockZ();
+                    int relativeY = pos.getBlockY() - axisOrigin.getBlockY();
+
+                    // Convert to array indices (axis position within bounds)
+                    int arrayZ = relativeZ + axisZOffset;
+                    int arrayY = relativeY + axisYOffset;
+
+                    if (arrayZ >= 0 && arrayZ < widthZ && arrayY >= 0 && arrayY < heightY) {
+                        slice.setBlock(arrayZ, arrayY, blocks.get(pos));
+                    }
+                }
+            }
+
+            slices.add(slice);
+        }
+
+        RoadPreset roadPreset = new RoadPreset(presetName, slices, lengthX, widthZ, heightY, axisZOffset, axisYOffset);
         presetManager.savePreset(roadPreset);
         
         player.sendMessage(ChatColor.GREEN + "プリセット '" + presetName + "' を新しい座標系で保存しました。");
@@ -187,17 +249,53 @@ public class PresetCommand implements CommandExecutor {
 
         player.sendMessage(ChatColor.GREEN + "プリセット '" + presetName + "' を貼り付け中... (基準点: " + formatLocation(pasteReferencePoint) + ")");
 
-        for (Map.Entry<Vector, BlockData> entry : preset.getBlocks().entrySet()) {
-            Vector relativeVector = entry.getKey();
-            BlockData blockData = entry.getValue();
+        // Implement paste functionality for slice-based presets
+        Location axisPoint = pasteReferencePoint; // Use paste point as axis origin
 
-            Location targetLocation = pasteReferencePoint.clone().add(relativeVector);
-            if (targetLocation.getWorld() != null) {
-                targetLocation.getBlock().setBlockData(blockData, false);
+        // Get player's yaw to determine orientation
+        float yaw = player.getLocation().getYaw();
+
+        // Calculate direction vectors based on yaw
+        double rightX = Math.cos(Math.toRadians(yaw + 90f));
+        double rightZ = Math.sin(Math.toRadians(yaw + 90f));
+        Vector rightVector = new Vector(rightX, 0, rightZ).normalize();
+
+        double forwardX = Math.cos(Math.toRadians(yaw));
+        double forwardZ = Math.sin(Math.toRadians(yaw));
+        Vector forwardVector = new Vector(forwardX, 0, forwardZ).normalize();
+
+        Vector upVector = new Vector(0, 1, 0);
+
+        int blocksPlaced = 0;
+
+        // Iterate through slices and place blocks
+        for (RoadPreset.PresetSlice slice : preset.getSlices()) {
+            int sliceX = slice.getXPosition();
+
+            for (int z = preset.getMinZ(); z <= preset.getMaxZ(); z++) {
+                for (int y = preset.getMinY(); y <= preset.getMaxY(); y++) {
+                    BlockData blockData = slice.getBlockRelativeToAxis(z, y, preset.getAxisZOffset(), preset.getAxisYOffset());
+
+                    if (blockData != null) {
+                        // Calculate world position based on the saved preset's coordinate system
+                        // sliceX (preset's X) maps to player's forward (Z)
+                        // y (preset's Y) maps to player's up (Y)
+                        // z (preset's Z) maps to player's -right (X)
+                        Location worldLocation = axisPoint.clone()
+                            .add(forwardVector.clone().multiply(sliceX))
+                            .add(upVector.clone().multiply(y))
+                            .add(rightVector.clone().multiply(-z)); // Note the -z here
+
+                        if (worldLocation.getWorld() != null) {
+                            worldLocation.getBlock().setBlockData(blockData, false);
+                            blocksPlaced++;
+                        }
+                    }
+                }
             }
         }
 
-        player.sendMessage(ChatColor.GREEN + "プリセット '" + presetName + "' の貼り付けが完了しました。");
+        player.sendMessage(ChatColor.GREEN + "プリセット '" + presetName + "' の貼り付けが完了しました。(" + blocksPlaced + "ブロック配置)");
     }
 
     private List<Location> getLineBetween(Location start, Location end) {
