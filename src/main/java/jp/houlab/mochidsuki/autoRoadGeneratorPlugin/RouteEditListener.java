@@ -45,6 +45,10 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
             Player player = plugin.getServer().getPlayer(uuid);
             if (player != null && player.isOnline()) {
                 runLiveUpdate(player, plugin.getRouteSession(uuid));
+                // 接続モードの場合、アクションバーを更新
+                if (plugin.getRouteSession(uuid).getBranchStartNodeId() != null) {
+                    sendEdgeModeActionBar(player, plugin.getRouteSession(uuid));
+                }
             }
         }
     }
@@ -240,6 +244,7 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
 
             session.setCurrentEdgeMode(newMode);
             player.sendMessage(ChatColor.AQUA + "エッジモードを " + newMode.name() + " に変更しました。");
+            sendEdgeModeActionBar(player, session); // アクションバーを更新
             updateRoute(player, session);
             event.setCancelled(true); // ホットバーの切り替えをキャンセル
         }
@@ -315,7 +320,7 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
     }
 
     /**
-     * 右クリック時のロジック。ノードの新規作成、分岐、移動確定を処理します。
+     * 右クリック時のロジック。ノードの新規作成、分岐、移動確定、アンカー移動確定を処理します。
      * @param player 操作プレイヤー
      * @param interactionLocation プレイヤーがインタラクションした正確な位置 (ブロック上または空中)
      * @return ノード操作が実行された場合はtrue、それ以外はfalse
@@ -348,6 +353,7 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
                 // 既存のノードを右クリック -> 分岐始点として選択
                 session.setBranchStartNodeId(nearestNodeId);
                 player.sendMessage(ChatColor.AQUA + "分岐の始点を選択しました。次のノードを右クリックして接続してください。");
+                sendEdgeModeActionBar(player, session); // 接続モードに入ったのでアクションバー表示
                 updateRoute(player, session); // マーカーの表示更新
                 return true;
             } else {
@@ -405,22 +411,19 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
                     session.addEdge(newEdge);
                 }
                 session.setBranchStartNodeId(null); // 接続が完了したので分岐始点をリセット
+                player.sendActionBar(""); // アクションバーをクリア
                 updateRoute(player, session);
                 return true;
             } else {
                 player.sendMessage(ChatColor.RED + "同じノードには接続できません。");
                 session.setBranchStartNodeId(null); // 接続失敗でも分岐始点をリセット
+                player.sendActionBar(""); // アクションバーをクリア
                 updateRoute(player, session);
                 return true; // 接続試行は行われたため、処理済みとみなす
             }
         }
     }
 
-    /**
-     * 空中右クリック時のロジック。経路上に新しい中継点を追加します（エッジ分割）。
-     * @param player 操作プレイヤー
-     * @param interactionLocation プレイヤーがインタラクションした正確な位置 (空中)
-     */
     private void handleAirRightClick(Player player, Location interactionLocation) {
         RouteSession session = plugin.getRouteSession(player.getUniqueId());
         if (session.getEdges().isEmpty()) return;
@@ -470,6 +473,12 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
             updateSingleEdge(session, edge);
         }
         visualizer.showAll(player, session);
+        // ルート更新時にもアクションバーを更新（特にノード移動時など）
+        if (session.getBranchStartNodeId() != null) {
+            sendEdgeModeActionBar(player, session);
+        } else {
+            player.sendActionBar(""); // 接続モードでない場合はクリア
+        }
     }
 
     /**
@@ -529,5 +538,16 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
             // 周囲に固形ブロックがない場合は、空中にそのまま配置
             return targetLocation;
         }
+    }
+
+    /**
+     * プレイヤーのアクションバーに現在のエッジモードを表示します。
+     * @param player 対象プレイヤー
+     * @param session プレイヤーのルートセッション
+     */
+    private void sendEdgeModeActionBar(Player player, RouteSession session) {
+        String modeName = session.getCurrentEdgeMode().name();
+        String message = ChatColor.GOLD + "現在のエッジモード: " + ChatColor.AQUA + modeName;
+        player.sendActionBar(message);
     }
 }

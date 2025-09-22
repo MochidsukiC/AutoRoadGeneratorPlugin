@@ -50,7 +50,10 @@ public class RoadEditCommand implements CommandExecutor {
             visualizer.hideAll(player, session);
 
             // セッション情報をクリア
-            session.clearSession();
+
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                session.clearSession();
+            },1L);
 
             player.sendMessage(ChatColor.YELLOW + "編集モードを終了しました。");
 
