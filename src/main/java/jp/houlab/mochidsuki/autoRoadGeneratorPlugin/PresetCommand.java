@@ -56,7 +56,7 @@ public class PresetCommand implements CommandExecutor {
             String presetName = args[1];
             savePreset(player, presetName);
             return true;
-        } else if (subCommand.equals("paste")) { // Add new paste subcommand
+        } else if (subCommand.equals("paste")) {
             if (args.length < 2) {
                 player.sendMessage(ChatColor.RED + "使用方法: /roadpreset paste <プリセット名>");
                 return true;
@@ -113,13 +113,23 @@ public class PresetCommand implements CommandExecutor {
             return;
         }
 
-        // 3. 基準点（例: axisStart）を決定します。
-        // We'll use axisStart as the reference point for relative coordinates.
-        // It's important to use the block coordinates for consistency.
-        Location referencePoint = axisStart.getBlock().getLocation();
+        // ステップ1：プリセット自身のローカル座標系を定義する
+        Vector presetForward = axisEnd.toVector().subtract(axisStart.toVector());
+        // Y軸の差を無視して水平な向きを基準にする
+        presetForward.setY(0);
+        if (presetForward.lengthSquared() < 1e-6) {
+            presetForward = new Vector(0, 0, 1); // 軸が垂直な場合のフォールバック
+        }
+        presetForward.normalize();
 
-        // 4. pos1とpos2で定義された範囲内のすべてのブロックをスキャンします。
+        Vector presetUp = new Vector(0, 1, 0);
+        Vector presetRight = presetUp.clone().crossProduct(presetForward).normalize();
+
+        // 基準点は変わらず axisStart を使用
+        Location referencePoint = axisStart.getBlock().getLocation();
+        
         Map<Vector, BlockData> blocks = new HashMap<>();
+
         Location min = getMinLocation(pos1, pos2);
         Location max = getMaxLocation(pos1, pos2);
 
@@ -129,28 +139,41 @@ public class PresetCommand implements CommandExecutor {
             max.getBlockZ() - min.getBlockZ() + 1
         );
 
+        // ステップ2：各ブロックをスキャンし、ローカル座標に変換する
         for (int x = min.getBlockX(); x <= max.getBlockX(); x++) {
             for (int y = min.getBlockY(); y <= max.getBlockY(); y++) {
                 for (int z = min.getBlockZ(); z <= max.getBlockZ(); z++) {
                     Block block = Objects.requireNonNull(min.getWorld()).getBlockAt(x, y, z);
-                    Vector relativeVector = block.getLocation().toVector().subtract(referencePoint.toVector());
-                    blocks.put(relativeVector, block.getBlockData());
+                    
+                    // ワールド座標系での相対ベクトルを計算
+                    Vector worldOffset = block.getLocation().toVector().subtract(referencePoint.toVector());
+
+                    // ステップ3：ドット積（内積）を使ってローカル座標 (px, py, pz) を求める
+                    double px = worldOffset.dot(presetRight);
+                    double py = worldOffset.dot(presetUp);
+                    double pz = worldOffset.dot(presetForward);
+
+                    // ブロック座標に丸めて、新しいローカル座標ベクトルを作成
+                    Vector localVector = new Vector(Math.round(px), Math.round(py), Math.round(pz));
+                    blocks.put(localVector, block.getBlockData());
                 }
             }
         }
-
-        // 6. 手順2で生成した中心軸パスも、各点を基準点からの相対座標に変換します。
+        
+        // 中心軸パスも同様にローカル座標へ変換
         List<Vector> axisPath = new ArrayList<>();
         for (Location loc : rawAxisPath) {
-            axisPath.add(loc.toVector().subtract(referencePoint.toVector()));
+            Vector worldOffset = loc.toVector().subtract(referencePoint.toVector());
+            double px = worldOffset.dot(presetRight);
+            double py = worldOffset.dot(presetUp);
+            double pz = worldOffset.dot(presetForward);
+            axisPath.add(new Vector(Math.round(px), Math.round(py), Math.round(pz)));
         }
 
-        // 7. これらの情報からRoadPresetオブジェクトを生成し、PresetManagerを呼び出してファイルに保存します。
         RoadPreset roadPreset = new RoadPreset(presetName, dimensions, blocks, axisPath);
         presetManager.savePreset(roadPreset);
-
-        // 8. プレイヤーに保存完了を通知し、セッションをクリアします。
-        player.sendMessage(ChatColor.GREEN + "プリセット \'" + presetName + "\' を保存しました。");
+        
+        player.sendMessage(ChatColor.GREEN + "プリセット \'" + presetName + "\' を新しい座標系で保存しました。");
         playerSessions.remove(player.getUniqueId());
     }
 
