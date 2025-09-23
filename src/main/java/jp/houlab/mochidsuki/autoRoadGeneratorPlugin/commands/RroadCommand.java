@@ -1,6 +1,10 @@
 package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands;
 
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.*;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.*;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.*;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build.*;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.*;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -66,10 +70,11 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
                 break;
             case "build":
                 if (args.length < 2) {
-                    player.sendMessage(ChatColor.RED + "使用法: /rroad build <プリセット名>");
+                    player.sendMessage(ChatColor.RED + "使用法: /rroad build <プリセット名> [-onlyair]");
                     return true;
                 }
-                handleBuild(player, args[1]);
+                boolean onlyAir = args.length > 2 && args[2].equalsIgnoreCase("-onlyair");
+                handleBuild(player, args[1], onlyAir);
                 break;
             default:
                 sendHelp(player);
@@ -87,11 +92,15 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
             if (args[0].equalsIgnoreCase("build") || args[0].equalsIgnoreCase("paste")) {
                 return StringUtil.copyPartialMatches(args[1], presetManager.getPresetNames(), new ArrayList<>());
             }
+        } else if (args.length == 3) {
+            if (args[0].equalsIgnoreCase("build")) {
+                return StringUtil.copyPartialMatches(args[2], Arrays.asList("-onlyair"), new ArrayList<>());
+            }
         }
         return Collections.emptyList();
     }
 
-    private void handleBuild(Player player, String presetName) {
+    private void handleBuild(Player player, String presetName, boolean onlyAir) {
         UUID playerUUID = player.getUniqueId();
         RouteSession routeSession = plugin.getRouteSession(playerUUID);
         if (routeSession.getCalculatedPath().isEmpty()) {
@@ -105,8 +114,9 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
             return;
         }
 
-        player.sendMessage(ChatColor.GREEN + "建築計画の計算を開始します... (プリセット: " + presetName + ")");
-        new BuildCalculationTask(plugin, playerUUID, routeSession, roadPreset).runTaskAsynchronously(plugin);
+        String modeMessage = onlyAir ? " (空気ブロックのみ設置モード)" : "";
+        player.sendMessage(ChatColor.GREEN + "建築計画の計算を開始します... (プリセット: " + presetName + ")" + modeMessage);
+        new BuildCalculationTask(plugin, playerUUID, routeSession, roadPreset, onlyAir).runTaskAsynchronously(plugin);
     }
 
     private void handleBrush(Player player) {
@@ -318,7 +328,7 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(ChatColor.AQUA + "--- 道路コマンド ---");
         player.sendMessage(ChatColor.YELLOW + "/rroad brush" + ChatColor.WHITE + " - 道路プリセット作成用のブラシを取得します。");
         player.sendMessage(ChatColor.YELLOW + "/rroad save <名前>" + ChatColor.WHITE + " - 選択範囲を道路プリセットとして保存します。");
-        player.sendMessage(ChatColor.YELLOW + "/rroad build <プリセット名>" + ChatColor.WHITE + " - 経路に沿ってプリセットから道路を建設します。");
+        player.sendMessage(ChatColor.YELLOW + "/rroad build <プリセット名> [-onlyair]" + ChatColor.WHITE + " - 経路に沿ってプリセットから道路を建設します。-onlyairオプションで空気ブロックのみに設置。");
         player.sendMessage(ChatColor.YELLOW + "/rroad paste <プリセット名>" + ChatColor.WHITE + " - 足元に道路プリセットを直接設置します。");
     }
     

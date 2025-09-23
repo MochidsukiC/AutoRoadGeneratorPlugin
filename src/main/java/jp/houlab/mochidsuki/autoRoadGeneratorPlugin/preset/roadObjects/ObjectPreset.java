@@ -1,4 +1,4 @@
-package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.roadObjects;
+package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.roadObjects;
 
 import org.bukkit.block.data.BlockData;
 import org.bukkit.util.Vector;

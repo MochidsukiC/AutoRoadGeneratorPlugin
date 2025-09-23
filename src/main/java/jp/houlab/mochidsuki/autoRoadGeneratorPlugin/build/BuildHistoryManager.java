@@ -1,4 +1,6 @@
-package jp.houlab.mochidsuki.autoRoadGeneratorPlugin;
+package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build;
+
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;

@@ -1,5 +1,7 @@
-package jp.houlab.mochidsuki.autoRoadGeneratorPlugin;
+package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route;
 
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.PlayerMessageUtil;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -138,13 +140,9 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
 
         // プレイヤーの視線が当たっている正確な位置（ブロック上または空中）を取得
         if(event.getAction() == Action.RIGHT_CLICK_AIR) {
-            RayTraceResult result = player.rayTraceBlocks(5, org.bukkit.FluidCollisionMode.NEVER);
-            if (result != null) {
-                if (result.getHitBlock() != null) {
-                    interactionLocation = result.getHitBlock().getLocation();
-                } else if (result.getHitPosition() != null) {
-                    interactionLocation = result.getHitPosition().toLocation(player.getWorld());
-                }
+            RayTraceResult result = player.rayTraceBlocks(5);
+            if (result != null && result.getHitBlock() != null) {
+                interactionLocation = result.getHitBlock().getLocation();
             }
             if (interactionLocation == null) {
                 // RayTraceが何もヒットしなかった場合のフォールバック（空を見上げている場合など）
@@ -165,7 +163,7 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
 
         // --- アンカー移動の確定 --- (selectedAnchorIdが設定されている場合)
         UUID selectedAnchorId = session.getSelectedAnchorId();
-        if (selectedAnchorId != null && action.isRightClick()) {
+        if (selectedAnchorId != null && (action == Action.RIGHT_CLICK_AIR || action == Action.RIGHT_CLICK_BLOCK)) {
             CurveAnchor anchorToMove = session.getAnchor(selectedAnchorId);
             if (anchorToMove != null) {
                 Location finalAnchorLocation = getConstrainedLocation(
@@ -184,7 +182,7 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
         // --- ノード操作の処理 --- (アンカー操作がなかった場合)
         if (action == Action.LEFT_CLICK_BLOCK) {
             handleLeftClick(player, clickedBlock);
-        } else if (action.isRightClick()) {
+        } else if (action == Action.RIGHT_CLICK_AIR || action == Action.RIGHT_CLICK_BLOCK) {
             // 右クリックイベントをノード操作としてまず処理
             boolean handledByNodeOperation = handleRightClick(player, interactionLocation);
             if (!handledByNodeOperation) {
@@ -444,13 +442,13 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
                     session.addEdge(newEdge);
                 }
                 session.setBranchStartNodeId(null); // 接続が完了したので分岐始点をリセット
-                player.sendActionBar(""); // アクションバーをクリア
+                PlayerMessageUtil.clearActionBar(player); // アクションバーをクリア
                 updateRoute(player, session);
                 return true;
             } else {
                 player.sendMessage(ChatColor.RED + "同じノードには接続できません。");
                 session.setBranchStartNodeId(null); // 接続失敗でも分岐始点をリセット
-                player.sendActionBar(""); // アクションバーをクリア
+                PlayerMessageUtil.clearActionBar(player); // アクションバーをクリア
                 updateRoute(player, session);
                 return true; // 接続試行は行われたため、処理済みとみなす
             }
@@ -582,7 +580,6 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
 
     /**
      * プレイヤーのアクションバーに現在のモードを表示します。
-     * 接続モードまたはアンカー編集モードのいずれかを表示します。
      * @param player 対象プレイヤー
      * @param session プレイヤーのルートセッション
      */
@@ -597,7 +594,8 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
             String modeName = session.getCurrentEdgeMode().name();
             message = ChatColor.GOLD + "現在のエッジモード: " + ChatColor.AQUA + modeName;
         }
-        player.sendActionBar(message);
+
+        PlayerMessageUtil.sendActionBar(player, message);
     }
 
     /**

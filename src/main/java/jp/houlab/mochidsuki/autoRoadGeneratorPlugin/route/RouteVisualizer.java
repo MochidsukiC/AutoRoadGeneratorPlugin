@@ -1,5 +1,6 @@
-package jp.houlab.mochidsuki.autoRoadGeneratorPlugin;
+package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route;
 
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
 import org.bukkit.Bukkit;
 import org.bukkit.Color;
 import org.bukkit.Location;

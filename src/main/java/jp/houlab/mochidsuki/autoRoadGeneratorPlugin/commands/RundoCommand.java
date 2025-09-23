@@ -1,7 +1,7 @@
 package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands;
 
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
-import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.BuildHistoryManager;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build.BuildHistoryManager;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;

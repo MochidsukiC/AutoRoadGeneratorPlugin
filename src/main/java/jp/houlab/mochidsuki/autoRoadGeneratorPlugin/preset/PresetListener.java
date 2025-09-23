@@ -1,4 +1,4 @@
-package jp.houlab.mochidsuki.autoRoadGeneratorPlugin;
+package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset;
 
 import org.bukkit.ChatColor;
 import org.bukkit.Location;

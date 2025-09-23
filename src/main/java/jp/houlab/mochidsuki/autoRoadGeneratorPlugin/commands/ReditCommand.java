@@ -1,8 +1,8 @@
 package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands;
 
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
-import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.RouteSession;
-import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.RouteVisualizer;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteSession;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteVisualizer;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.command.Command;
