@@ -195,7 +195,7 @@ public class BuildCalculationTask extends BukkitRunnable {
                         }
                     }
 
-                    x += 0.5f;
+                    x += 0.25f;
                     if (x >= roadPreset.getLengthX()) x = 0;
                 }
             }

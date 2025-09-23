@@ -291,7 +291,6 @@ public class RouteCalculator {
 
         if (anchor != null) {
             // Use two Catmull-Rom segments for XZ: p1-anchor and anchor-p2
-            // Segment 1: p1 to anchor
             // Control points: p_prev_xz, p1_xz, anchor_xz, p2_xz
             Location anchorLoc = anchor.getLocation();
             Location p1_xz = new Location(p1.getWorld(), p1.getX(), 0, p1.getZ());
@@ -300,16 +299,25 @@ public class RouteCalculator {
 
             double segment1Length = p1_xz.distance(anchor_xz);
             double segment2Length = anchor_xz.distance(p2_xz);
-            double totalLength = segment1Length + segment2Length;
+            double totalSegmentLength = segment1Length + segment2Length;
+
+            if (totalSegmentLength < 1e-6) { // Avoid division by zero or very small length
+                for (double t = step; t < 1.0; t += step) {
+                    path.add(lerp(p1, p2, t));
+                }
+                return;
+            }
+
+            double ratio = segment1Length / totalSegmentLength; // Proportion of the first segment
 
             for (double t = step; t < 1.0; t += step) {
                 Location currentPoint;
                 double currentY;
-                if (t * chordLength < segment1Length) { // First segment
-                    double t_segment = (t * chordLength) / segment1Length; // Normalize t for segment
+                if (t < ratio) { // First segment
+                    double t_segment = t / ratio; // Normalize t for the first segment (0 to 1)
                     currentPoint = getPointOnCatmullRomSpline(t_segment, p_prev_xz, p1_xz, anchor_xz, p2_xz);
                 } else { // Second segment
-                    double t_segment = (t * chordLength - segment1Length) / segment2Length; // Normalize t for segment
+                    double t_segment = (t - ratio) / (1.0 - ratio); // Normalize t for the second segment (0 to 1)
                     currentPoint = getPointOnCatmullRomSpline(t_segment, p1_xz, anchor_xz, p2_xz, p_next_xz);
                 }
 
@@ -390,16 +398,26 @@ public class RouteCalculator {
      * 角度が指定された開始角度と終了角度の間にあるか判定します。
      * 角度のラップアラウンドを考慮します。
      */
-    private boolean isAngleBetween(double angle, double startAngle, double endAngle, double angleDiff) {
-        // 角度を0から2PIの範囲に正規化
-        angle = (angle % (2 * Math.PI) + (2 * Math.PI)) % (2 * Math.PI);
+    private boolean isAngleBetween(double testAngle, double startAngle, double endAngle, double angleDiff) {
+        // Normalize all angles to be in [0, 2*PI)
+        testAngle = (testAngle % (2 * Math.PI) + (2 * Math.PI)) % (2 * Math.PI);
         startAngle = (startAngle % (2 * Math.PI) + (2 * Math.PI)) % (2 * Math.PI);
         endAngle = (endAngle % (2 * Math.PI) + (2 * Math.PI)) % (2 * Math.PI);
 
-        if (angleDiff < 0) { // 時計回り
-            return (angle <= startAngle && angle >= endAngle) || (angle <= startAngle && endAngle > startAngle) || (angle >= endAngle && endAngle > startAngle);
-        } else { // 反時計回り
-            return (angle >= startAngle && angle <= endAngle) || (angle >= startAngle && endAngle < startAngle) || (angle <= endAngle && endAngle < startAngle);
+        if (angleDiff > 0) { // Counter-clockwise arc
+            if (endAngle < startAngle) {
+                endAngle += 2 * Math.PI; // Arc crosses the 0/2*PI boundary
+            }
+            // Now startAngle <= endAngle (possibly with endAngle > 2*PI)
+            // Check if testAngle is between startAngle and endAngle
+            return testAngle >= startAngle && testAngle <= endAngle;
+        } else { // Clockwise arc (angleDiff < 0)
+            if (endAngle > startAngle) {
+                endAngle -= 2 * Math.PI; // Arc crosses the 0/2*PI boundary
+            }
+            // Now startAngle >= endAngle (possibly with endAngle < 0)
+            // Check if testAngle is between endAngle and startAngle (because it's clockwise)
+            return testAngle <= startAngle && testAngle >= endAngle;
         }
     }
 

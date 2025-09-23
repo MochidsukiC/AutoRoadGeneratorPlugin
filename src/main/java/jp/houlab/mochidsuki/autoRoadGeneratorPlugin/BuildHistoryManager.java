@@ -21,7 +21,7 @@ public class BuildHistoryManager {
     public static void rollBack(UUID uuid, AutoRoadGeneratorPluginMain plugin){
         if(!buildHistory.get(uuid).isEmpty()){
 
-            Queue<BlockPlacementInfo> placementQueue = new ConcurrentLinkedQueue<>(buildHistory.get(uuid).getFirst());
+            Queue<BlockPlacementInfo> placementQueue = new ConcurrentLinkedQueue<>(buildHistory.get(uuid).get(0));
             new BuildPlacementTask(plugin, uuid, placementQueue).runTaskTimer(plugin,1,1);
             buildHistory.get(uuid).remove(0);
         }
