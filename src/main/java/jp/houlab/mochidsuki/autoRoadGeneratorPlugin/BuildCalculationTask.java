@@ -7,6 +7,7 @@ import org.bukkit.block.data.type.Slab;
 import org.bukkit.util.Vector;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.checkerframework.checker.units.qual.A;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -33,6 +34,7 @@ public class BuildCalculationTask extends BukkitRunnable {
         }
 
         List<BlockPlacementInfo> worldBlocks = new ArrayList<>();
+        List<BlockPlacementInfo> originalBlocks = new ArrayList<>();
 
         // TODO: ここに手動で道路建築アルゴリズムを実装してください
         //
@@ -187,7 +189,9 @@ public class BuildCalculationTask extends BukkitRunnable {
                                 }
                             }
 
+                            originalBlocks.add(new BlockPlacementInfo(worldLocation,worldLocation.getBlock().getBlockData()));
                             worldBlocks.add(new BlockPlacementInfo(worldLocation, clonedBlockData));
+
                         }
                     }
 
@@ -198,7 +202,7 @@ public class BuildCalculationTask extends BukkitRunnable {
         }
 
 
-
+        BuildHistoryManager.addBuildHistory(playerUUID,originalBlocks);
         Queue<BlockPlacementInfo> placementQueue = new ConcurrentLinkedQueue<>(worldBlocks);
         new BuildPlacementTask(plugin, playerUUID, placementQueue).runTaskTimer(plugin,1,1);
     }
