@@ -26,6 +26,17 @@ public class PresetManager {
         }
     }
 
+    public List<String> getPresetNames() {
+        List<String> presetNames = new ArrayList<>();
+        File[] files = presetsFolder.listFiles((dir, name) -> name.toLowerCase().endsWith(".yml"));
+        if (files != null) {
+            for (File file : files) {
+                presetNames.add(file.getName().substring(0, file.getName().length() - 4));
+            }
+        }
+        return presetNames;
+    }
+
     public void savePreset(RoadPreset preset) {
         // Convert legacy format to slice-based format before saving
         RoadPreset sliceBasedPreset = convertToSliceBased(preset);

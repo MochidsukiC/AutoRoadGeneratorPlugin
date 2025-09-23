@@ -95,10 +95,10 @@ public class RouteCalculator {
 
     /**
      * 指定されたノードにおける接線ベクトルを計算します。
-     * ノードに接続する他のエッジの方向を考慮します。
+     * ノードに接続する他のエッジの方向を考慮せず、現在のエッジの方向のみを考慮します。
      *
      * @param node 計算対象のノード
-     * @param session 現在のルートセッション
+     * @param session 現在のルートセッション (未使用になるが、既存のシグネチャを維持)
      * @param currentEdge 現在計算中のエッジ
      * @param overrideLocation ノードのLocationを一時的に上書きする場合のLocation
      * @param isStartNodeOfCurrentEdge nodeがcurrentEdgeの始点であるか (true) 終点であるか (false)
@@ -106,41 +106,13 @@ public class RouteCalculator {
      */
     private Vector getTangentVectorForNode(RouteNode node, RouteSession session, RouteEdge currentEdge, @Nullable Location overrideLocation, boolean isStartNodeOfCurrentEdge) {
         Location actualNodeLocation = (overrideLocation != null) ? overrideLocation : node.getLocation();
-        List<RouteEdge> connectedEdges = session.getEdgesConnectedToNode(node);
-        List<RouteEdge> otherEdges = new ArrayList<>(connectedEdges);
-        otherEdges.remove(currentEdge); // 現在計算中のエッジ自体は除外
 
-        if (otherEdges.isEmpty()) { // ノードがパスの端点（currentEdgeしか接続されていない）
-            if (isStartNodeOfCurrentEdge) {
-                // P1がパスの始点 -> P1からP2への方向
-                return currentEdge.getNode2().getLocation().toVector().subtract(actualNodeLocation.toVector()).normalize();
-            } else {
-                // P2がパスの終点 -> P1からP2への方向
-                return actualNodeLocation.toVector().subtract(currentEdge.getNode1().getLocation().toVector()).normalize();
-            }
-        } else if (otherEdges.size() == 1) { // ノードが単純な中間点（currentEdgeともう1つのエッジに接続）
-            RouteEdge otherEdge = otherEdges.get(0);
-            RouteNode neighborNode = otherEdge.getOtherNode(node);
-            if (isStartNodeOfCurrentEdge) {
-                // P1の接線 -> NeighborからP1への方向
-                return actualNodeLocation.toVector().subtract(neighborNode.getLocation().toVector()).normalize();
-            } else {
-                // P2の接線 -> P2からNeighborへの方向
-                return neighborNode.getLocation().toVector().subtract(actualNodeLocation.toVector()).normalize();
-            }
-        } else { // ノードが分岐点（3つ以上のエッジに接続）
-            // 分岐点では「180°」の接線は定義しにくい。ここでは、接続する全てのエッジの方向を平均するヒューリスティックを使用。
-            // ただし、currentEdgeの方向も考慮に入れることで、より自然な接続を目指す。
-            Vector tangentSum = new Vector(0, 0, 0);
-            for (RouteEdge ce : connectedEdges) {
-                Location otherNodeLoc = ce.getOtherNode(node).getLocation();
-                if (node.equals(ce.getNode1())) { // ノードがceの始点の場合
-                    tangentSum.add(otherNodeLoc.toVector().subtract(actualNodeLocation.toVector()));
-                } else { // ノードがceの終点の場合
-                    tangentSum.add(actualNodeLocation.toVector().subtract(otherNodeLoc.toVector()));
-                }
-            }
-            return tangentSum.normalize();
+        if (isStartNodeOfCurrentEdge) {
+            // nodeがcurrentEdgeの始点の場合、接線はnode1からnode2への方向
+            return currentEdge.getNode2().getLocation().toVector().subtract(actualNodeLocation.toVector()).normalize();
+        } else {
+            // nodeがcurrentEdgeの終点の場合、接線はnode1からnode2への方向 (P2に到達する方向)
+            return actualNodeLocation.toVector().subtract(currentEdge.getNode1().getLocation().toVector()).normalize();
         }
     }
 
@@ -330,7 +302,7 @@ public class RouteCalculator {
             // Fallback to a single Catmull-Rom segment if no anchor
             // Control points: p_prev_xz, p1_xz, p2_xz, p_next_xz
             Location p1_xz = new Location(p1.getWorld(), p1.getX(), 0, p1.getZ());
-            Location p2_xz = new Location(p2.getWorld(), p2.getX(), 0, p2.getZ());
+            Location p2_xz = new Location(p2.getWorld(),p2.getX(), 0, p2.getZ());
 
             for (double t = step; t < 1.0; t += step) {
                 Location currentPoint = getPointOnCatmullRomSpline(t, p_prev_xz, p1_xz, p2_xz, p_next_xz);

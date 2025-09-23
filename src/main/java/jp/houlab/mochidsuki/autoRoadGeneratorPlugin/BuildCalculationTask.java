@@ -135,13 +135,17 @@ public class BuildCalculationTask extends BukkitRunnable {
                     // 上方向ベクトル（進行方向と右方向の外積で計算）
                     Vector upVector = rightVector.clone().crossProduct(forwardVector).normalize();
 
+                    RoadPreset.PresetSlice slice = roadPreset.getSlices().get((int) x);
+                    Location location = pathPoint.clone().add(rightVector.clone().multiply(z));
+
                     out:
-                    for (int y = roadPreset.getMinY(); y <= roadPreset.getMaxY(); y++) {
-                        RoadPreset.PresetSlice slice = roadPreset.getSlices().get((int) x);
+                    for (int y = roadPreset.getMinY(); y <= roadPreset.getMaxY()+1; y++) {
+
                         BlockData blockData = slice.getBlockRelativeToAxis(z, y, roadPreset.getAxisZOffset(), roadPreset.getAxisYOffset());
 
                         if (blockData != null) {
-                            Location worldLocation = pathPoint.clone().add(rightVector.clone().multiply(z)).add(0, y, 0);
+
+                            Location worldLocation = location.clone().add(0,y,0);
 
                             // BlockDataのクローンを作成して参照共有を防ぐ
                             BlockData clonedBlockData = blockData.clone();
@@ -169,7 +173,7 @@ public class BuildCalculationTask extends BukkitRunnable {
                                     // 地面から0.5ブロック以下の場合はBOTTOMスラブ、それ以外はDOUBLE
 
                                     if(((Slab)blockData).getType() == Slab.Type.BOTTOM) {
-                                        if (heightAboveGround <= 0.5) {
+                                        if (heightAboveGround < 0.5) {
                                             break out;
                                         }else {
                                             slab.setType(Slab.Type.BOTTOM);
@@ -195,7 +199,7 @@ public class BuildCalculationTask extends BukkitRunnable {
                         }
                     }
 
-                    x += 0.25f;
+                    x += 0.5f;
                     if (x >= roadPreset.getLengthX()) x = 0;
                 }
             }

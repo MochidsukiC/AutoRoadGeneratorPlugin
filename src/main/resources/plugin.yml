@@ -3,12 +3,15 @@ version: 1.0-SNAPSHOT
 main: jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain
 api-version: '1.20'
 commands:
-  roadbrush:
-    description: Get a road brush.
-    usage: /roadbrush
-  roadedit:
-    description: Toggle road editing mode.
-    usage: /roadedit <edit|build <preset_name>>
-  roadpreset:
-    description: Manages road presets.
-    usage: /roadpreset <brush|save <name>|paste <name>>
+  rroad:
+    description: Manages road presets and construction.
+    usage: /rroad <brush|save <name>|build <preset_name>|paste <preset_name>>
+  robj:
+    description: Manages object presets and placement.
+    usage: /robj <brush|save <name>|place <preset_name> [options]>
+  redit:
+    description: Toggles road path editing mode or gets the road brush.
+    usage: /redit [brush]
+  rundo:
+    description: Undoes the last road or object placement.
+    usage: /rundo

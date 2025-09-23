@@ -1,0 +1,263 @@
+package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands;
+
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.*;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.roadObjects.ObjectBrushListener;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.roadObjects.ObjectCreationSession;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.roadObjects.ObjectPreset;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.roadObjects.ObjectPresetManager;
+import org.bukkit.ChatColor;
+import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.World;
+import org.bukkit.block.data.BlockData;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandExecutor;
+import org.bukkit.command.CommandSender;
+import org.bukkit.command.TabCompleter;
+import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.util.StringUtil;
+import org.bukkit.util.Vector;
+
+import java.util.*;
+import java.util.concurrent.ConcurrentLinkedQueue;
+
+public class RobjCommand implements CommandExecutor, TabCompleter {
+
+    private final AutoRoadGeneratorPluginMain plugin;
+    private final Map<UUID, ObjectCreationSession> creationSessions;
+    private final ObjectPresetManager objectPresetManager;
+
+    public RobjCommand(AutoRoadGeneratorPluginMain plugin, Map<UUID, ObjectCreationSession> creationSessions, ObjectPresetManager objectPresetManager) {
+        this.plugin = plugin;
+        this.creationSessions = creationSessions;
+        this.objectPresetManager = objectPresetManager;
+    }
+
+    @Override
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (!(sender instanceof Player)) {
+            sender.sendMessage("このコマンドはプレイヤーのみが実行できます。");
+            return true;
+        }
+
+        Player player = (Player) sender;
+
+        if (args.length == 0) {
+            sendHelp(player);
+            return true;
+        }
+
+        String subCommand = args[0].toLowerCase();
+
+        switch (subCommand) {
+            case "brush":
+                handleGetBrush(player);
+                break;
+            case "save":
+                if (args.length < 2) {
+                    player.sendMessage(ChatColor.RED + "使用法: /robj save <プリセット名>");
+                    return true;
+                }
+                handleCreate(player, args[1]);
+                break;
+            case "place":
+                handlePlace(player, args);
+                break;
+            default:
+                sendHelp(player);
+                break;
+        }
+
+        return true;
+    }
+
+    @Override
+    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        if (args.length == 1) {
+            return StringUtil.copyPartialMatches(args[0], Arrays.asList("brush", "save", "place"), new ArrayList<>());
+        } else if (args.length == 2) {
+            if (args[0].equalsIgnoreCase("place")) {
+                return StringUtil.copyPartialMatches(args[1], objectPresetManager.getPresetNames(), new ArrayList<>());
+            }
+        } else if (args.length > 2 && args[0].equalsIgnoreCase("place")) {
+            if (args[args.length - 1].startsWith("--")) {
+                return StringUtil.copyPartialMatches(args[args.length - 1], Arrays.asList("--interval", "--offset", "--rotate", "--flip"), new ArrayList<>());
+            }
+        }
+        return Collections.emptyList();
+    }
+
+    private void sendHelp(Player player) {
+        player.sendMessage(ChatColor.AQUA + "--- オブジェクトコマンド ---");
+        player.sendMessage(ChatColor.YELLOW + "/robj brush" + ChatColor.WHITE + " - オブジェクトプリセット作成用のブラシを取得します。");
+        player.sendMessage(ChatColor.YELLOW + "/robj save <名前>" + ChatColor.WHITE + " - 選択範囲をオブジェクトプリセットとして保存します。");
+        player.sendMessage(ChatColor.YELLOW + "/robj place <プリセット名> [オプション]" + ChatColor.WHITE + " - 経路に沿ってオブジェクトを設置します。");
+        player.sendMessage(ChatColor.GRAY + "設置オプション: --interval <m>, --offset <x,y,z>, --rotate <deg>, --flip <x|z>");
+    }
+
+    private void handleGetBrush(Player player) {
+        ItemStack brush = new ItemStack(Material.IRON_AXE);
+        ItemMeta meta = brush.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ObjectBrushListener.BRUSH_NAME);
+            brush.setItemMeta(meta);
+        }
+        player.getInventory().addItem(brush);
+        player.sendMessage(ChatColor.GREEN + "オブジェクトプリセット用のブラシを入手しました。");
+        player.sendMessage(ChatColor.AQUA + "左クリックで始点/終点を、右クリックで原点を設定します。");
+    }
+
+    private void handleCreate(Player player, String presetName) {
+        ObjectCreationSession session = creationSessions.get(player.getUniqueId());
+
+        if (session == null || !session.isReady()) {
+            player.sendMessage(ChatColor.RED + "先にブラシで始点、終点、原点を設定してください。");
+            return;
+        }
+
+        Location start = session.getStartLocation();
+        Location end = session.getEndLocation();
+        Location origin = session.getOriginLocation();
+        World world = start.getWorld();
+
+        float yaw = player.getLocation().getYaw();
+        int initialYaw = (int) (Math.round(yaw / 90.0) * 90) % 360;
+        if (initialYaw < 0) initialYaw += 360;
+
+        int minX = Math.min(start.getBlockX(), end.getBlockX());
+        int minY = Math.min(start.getBlockY(), end.getBlockY());
+        int minZ = Math.min(start.getBlockZ(), end.getBlockZ());
+        int maxX = Math.max(start.getBlockX(), end.getBlockX());
+        int maxY = Math.max(start.getBlockY(), end.getBlockY());
+        int maxZ = Math.max(start.getBlockZ(), end.getBlockZ());
+
+        Map<Vector, BlockData> blocks = new HashMap<>();
+        for (int x = minX; x <= maxX; x++) {
+            for (int y = minY; y <= maxY; y++) {
+                for (int z = minZ; z <= maxZ; z++) {
+                    Location blockLocation = new Location(world, x, y, z);
+                    BlockData blockData = blockLocation.getBlock().getBlockData();
+                    if (blockData.getMaterial() != Material.AIR) {
+                        Vector worldRelativePos = blockLocation.toVector().subtract(origin.toVector());
+                        Vector canonicalRelativePos = worldRelativePos.clone().rotateAroundY(Math.toRadians(-initialYaw));
+                        blocks.put(canonicalRelativePos, blockData.clone());
+                    }
+                }
+            }
+        }
+
+        if (blocks.isEmpty()) {
+            player.sendMessage(ChatColor.RED + "選択範囲が空です。プリセットは作成されませんでした。");
+            return;
+        }
+
+        Vector dimensions = new Vector(maxX - minX + 1, maxY - minY + 1, maxZ - minZ + 1);
+
+        ObjectPreset preset = new ObjectPreset(presetName, blocks, 0, dimensions);
+        objectPresetManager.savePreset(preset);
+
+        player.sendMessage(ChatColor.GREEN + "オブジェクトプリセット '" + presetName + "' を作成しました。");
+        creationSessions.remove(player.getUniqueId());
+    }
+
+    private void handlePlace(Player player, String[] args) {
+        if (args.length < 2) {
+            player.sendMessage(ChatColor.RED + "使用法: /robj place <プリセット名> [オプション]");
+            return;
+        }
+
+        String presetName = args[1];
+        double interval = 10.0;
+        Vector offset = new Vector(0, 0, 0);
+        float rotation = 0f;
+        String flipAxis = "";
+
+        try {
+            for (int i = 2; i < args.length; i++) {
+                switch (args[i].toLowerCase()) {
+                    case "--interval":
+                        interval = Double.parseDouble(args[++i]);
+                        break;
+                    case "--offset":
+                        String[] coords = args[++i].split(",");
+                        offset = new Vector(Double.parseDouble(coords[0]), Double.parseDouble(coords[1]), Double.parseDouble(coords[2]));
+                        break;
+                    case "--rotate":
+                        rotation = Float.parseFloat(args[++i]);
+                        break;
+                    case "--flip":
+                        flipAxis = args[++i].toLowerCase();
+                        if (!flipAxis.equals("x") && !flipAxis.equals("z")) throw new IllegalArgumentException("Invalid flip axis");
+                        break;
+                }
+            }
+        } catch (Exception e) {
+            player.sendMessage(ChatColor.RED + "引数が不正です。 /robj でヘルプを確認してください。");
+            return;
+        }
+
+        RouteSession routeSession = plugin.getRouteSession(player.getUniqueId());
+        List<Location> path = routeSession.getCalculatedPath();
+        if (path == null || path.isEmpty()) {
+            player.sendMessage(ChatColor.RED + "道路の経路が見つかりません。先に経路を計算してください。");
+            return;
+        }
+
+        ObjectPreset preset = objectPresetManager.loadPreset(presetName);
+        if (preset == null) {
+            player.sendMessage(ChatColor.RED + "オブジェクトプリセット '" + presetName + "' が見つかりませんでした。");
+            return;
+        }
+
+        List<BlockPlacementInfo> worldBlocks = new ArrayList<>();
+        List<BlockPlacementInfo> originalBlocks = new ArrayList<>();
+        double distanceSinceLast = interval > 0 ? interval : 0;
+
+        for (int i = 0; i < path.size(); i++) {
+            if (i > 0) {
+                distanceSinceLast += path.get(i).distance(path.get(i - 1));
+            }
+
+            if (distanceSinceLast >= interval) {
+                Location pathPoint = path.get(i);
+                float pathYaw = pathPoint.getYaw();
+
+                Vector tangent = new Vector(Math.cos(Math.toRadians(pathYaw)), 0, Math.sin(Math.toRadians(pathYaw)));
+                Vector up = new Vector(0, 1, 0);
+                Vector normal = new Vector(Math.cos(Math.toRadians(pathYaw + 90)), 0, Math.sin(Math.toRadians(pathYaw + 90)));
+
+                float totalYaw = pathYaw + rotation;
+
+                for (Map.Entry<Vector, BlockData> entry : preset.getBlocks().entrySet()) {
+                    Vector canonicalPos = entry.getKey().clone();
+
+                    if (flipAxis.equals("x")) canonicalPos.setX(canonicalPos.getX() * -1);
+                    if (flipAxis.equals("z")) canonicalPos.setZ(canonicalPos.getZ() * -1);
+                    canonicalPos.rotateAroundY(Math.toRadians(rotation));
+                    Vector finalLocalPos = canonicalPos.clone().add(offset);
+
+                    Vector worldDisplacement = new Vector();
+                    worldDisplacement.add(tangent.clone().multiply(finalLocalPos.getX()));
+                    worldDisplacement.add(up.clone().multiply(finalLocalPos.getY()));
+                    worldDisplacement.add(normal.clone().multiply(finalLocalPos.getZ()));
+
+                    Location blockLocation = pathPoint.clone().add(worldDisplacement);
+
+                    BlockData rotatedBlockData = BlockRotationUtil.rotateBlockData(entry.getValue().clone(), Math.toRadians(totalYaw));
+
+                    originalBlocks.add(new BlockPlacementInfo(blockLocation, blockLocation.getBlock().getBlockData()));
+                    worldBlocks.add(new BlockPlacementInfo(blockLocation, rotatedBlockData));
+                }
+                distanceSinceLast = 0;
+            }
+        }
+
+        BuildHistoryManager.addBuildHistory(player.getUniqueId(), originalBlocks);
+        Queue<BlockPlacementInfo> placementQueue = new ConcurrentLinkedQueue<>(worldBlocks);
+        new BuildPlacementTask(plugin, player.getUniqueId(), placementQueue).runTaskTimer(plugin, 1, 1);
+
+        player.sendMessage(ChatColor.GREEN + "経路に沿ってオブジェクトを設置しています...");
+    }
+}

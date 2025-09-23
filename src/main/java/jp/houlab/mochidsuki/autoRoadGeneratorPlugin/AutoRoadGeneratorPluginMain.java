@@ -1,5 +1,12 @@
 package jp.houlab.mochidsuki.autoRoadGeneratorPlugin;
 
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands.ReditCommand;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands.RobjCommand;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands.RroadCommand;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands.RundoCommand;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.roadObjects.ObjectBrushListener;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.roadObjects.ObjectCreationSession;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.roadObjects.ObjectPresetManager;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
@@ -19,6 +26,7 @@ public class AutoRoadGeneratorPluginMain extends JavaPlugin {
     private final Map<UUID, RouteSession> routeSessions = new ConcurrentHashMap<>();
     private final Set<UUID> editModePlayers = Collections.synchronizedSet(new HashSet<>());
     private final Map<UUID, PresetCreationSession> playerSessions = new ConcurrentHashMap<>();
+    private final Map<UUID, ObjectCreationSession> objectCreationSessions = new ConcurrentHashMap<>();
 
     private RouteCalculator calculator;
     private RouteVisualizer visualizer;
@@ -26,6 +34,7 @@ public class AutoRoadGeneratorPluginMain extends JavaPlugin {
     private BukkitTask routeEditTask;
 
     private PresetManager presetManager;
+    private ObjectPresetManager objectPresetManager;
 
     @Override
     public void onEnable() {
@@ -34,13 +43,25 @@ public class AutoRoadGeneratorPluginMain extends JavaPlugin {
         this.routeEditListener = new RouteEditListener(this, calculator, visualizer);
 
         this.presetManager = new PresetManager(this);
+        this.objectPresetManager = new ObjectPresetManager(this);
 
-        getCommand("roadbrush").setExecutor(new BrushCommand(this));
-        getCommand("roadedit").setExecutor(new RoadEditCommand(this, visualizer, presetManager)); // presetManager を追加
-        getCommand("roadpreset").setExecutor(new PresetCommand(this, presetManager, playerSessions));
+        RroadCommand rroadCommand = new RroadCommand(this, presetManager, playerSessions);
+        getCommand("rroad").setExecutor(rroadCommand);
+        getCommand("rroad").setTabCompleter(rroadCommand);
+
+        RobjCommand robjCommand = new RobjCommand(this, objectCreationSessions, objectPresetManager);
+        getCommand("robj").setExecutor(robjCommand);
+        getCommand("robj").setTabCompleter(robjCommand);
+
+        ReditCommand reditCommand = new ReditCommand(this, visualizer);
+        getCommand("redit").setExecutor(reditCommand);
+        getCommand("redit").setTabCompleter(reditCommand);
+
+        getCommand("rundo").setExecutor(new RundoCommand(this));
 
         getServer().getPluginManager().registerEvents(routeEditListener, this);
         getServer().getPluginManager().registerEvents(new PresetListener(playerSessions), this);
+        getServer().getPluginManager().registerEvents(new ObjectBrushListener(this, objectCreationSessions), this);
 
         this.routeEditTask = routeEditListener.runTaskTimerAsynchronously(this, 0L, 5L);
 
