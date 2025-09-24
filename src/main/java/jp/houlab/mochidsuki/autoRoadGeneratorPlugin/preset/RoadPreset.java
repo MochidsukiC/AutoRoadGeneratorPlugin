@@ -4,7 +4,7 @@ import org.bukkit.block.data.BlockData;
 
 import java.util.List;
 
-public class RoadPreset {
+public class RoadPreset implements PresetData {
     private final String name;
     private final List<PresetSlice> slices; // X-axis slices
     private final int lengthX; // Number of slices along X-axis
@@ -23,8 +23,14 @@ public class RoadPreset {
         this.axisYOffset = axisYOffset;
     }
 
+    @Override
     public String getName() {
         return name;
+    }
+
+    @Override
+    public PresetType getType() {
+        return PresetType.ROAD;
     }
 
     public List<PresetSlice> getSlices() {
@@ -69,29 +75,32 @@ public class RoadPreset {
     }
 
     // Inner class for 2D slice data
-    public static class PresetSlice {
+    public static class PresetSlice implements BlockDataProvider {
         private final int xPosition;
         private final BlockData[][] yzGrid; // [z][y] grid
+        private final String[][] stringGrid; // [z][y] grid for thread-safe string data
 
         public PresetSlice(int xPosition, int widthZ, int heightY) {
             this.xPosition = xPosition;
             this.yzGrid = new BlockData[widthZ][heightY];
+            this.stringGrid = new String[widthZ][heightY];
         }
 
         public int getXPosition() {
             return xPosition;
         }
 
-        public BlockData getBlock(int z, int y) {
+        // インターフェース実装 - メインスレッド用
+        @Override
+        public BlockData getBlockData(int z, int y) {
             if (z >= 0 && z < yzGrid.length && y >= 0 && y < yzGrid[0].length) {
                 return yzGrid[z][y];
             }
             return null;
         }
 
-        // 軸からの相対座標でブロックを取得（負の座標にも対応）
-        public BlockData getBlockRelativeToAxis(int relativeZ, int relativeY, int axisZOffset, int axisYOffset) {
-            // 軸位置からarray indexに変換
+        @Override
+        public BlockData getBlockDataRelativeToAxis(int relativeZ, int relativeY, int axisZOffset, int axisYOffset) {
             int arrayZ = relativeZ + axisZOffset;
             int arrayY = relativeY + axisYOffset;
 
@@ -101,9 +110,44 @@ public class RoadPreset {
             return null;
         }
 
+        // インターフェース実装 - 並列処理用
+        @Override
+        public String getBlockDataString(int z, int y) {
+            if (z >= 0 && z < stringGrid.length && y >= 0 && y < stringGrid[0].length) {
+                return stringGrid[z][y];
+            }
+            return null;
+        }
+
+        @Override
+        public String getBlockDataStringRelativeToAxis(int relativeZ, int relativeY, int axisZOffset, int axisYOffset) {
+            int arrayZ = relativeZ + axisZOffset;
+            int arrayY = relativeY + axisYOffset;
+
+            if (arrayZ >= 0 && arrayZ < stringGrid.length && arrayY >= 0 && arrayY < stringGrid[0].length) {
+                return stringGrid[arrayZ][arrayY];
+            }
+            return null;
+        }
+
+        // 従来の互換性メソッド（deprecated推奨）
+        public BlockData getBlock(int z, int y) {
+            return getBlockData(z, y);
+        }
+
+        public BlockData getBlockRelativeToAxis(int relativeZ, int relativeY, int axisZOffset, int axisYOffset) {
+            return getBlockDataRelativeToAxis(relativeZ, relativeY, axisZOffset, axisYOffset);
+        }
+
         public void setBlock(int z, int y, BlockData blockData) {
             if (z >= 0 && z < yzGrid.length && y >= 0 && y < yzGrid[0].length) {
                 yzGrid[z][y] = blockData;
+            }
+        }
+
+        public void setBlockString(int z, int y, String blockDataString) {
+            if (z >= 0 && z < stringGrid.length && y >= 0 && y < stringGrid[0].length) {
+                stringGrid[z][y] = blockDataString;
             }
         }
 
@@ -117,6 +161,10 @@ public class RoadPreset {
 
         public BlockData[][] getYZGrid() {
             return yzGrid;
+        }
+
+        public String[][] getStringGrid() {
+            return stringGrid;
         }
     }
 }

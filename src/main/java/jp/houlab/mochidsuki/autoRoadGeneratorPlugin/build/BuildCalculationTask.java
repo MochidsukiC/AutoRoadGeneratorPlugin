@@ -3,7 +3,7 @@ package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteSession;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.RoadPreset;
-import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.BlockRotationUtil;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.StringBlockRotationUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
@@ -41,6 +41,7 @@ public class BuildCalculationTask extends BukkitRunnable {
     private final RouteSession routeSession;
     private final RoadPreset roadPreset;
     private final boolean onlyAir;
+    // グローバルロック削除 - String版プリセットで完全にスレッドセーフ
 
     public BuildCalculationTask(AutoRoadGeneratorPluginMain plugin, UUID playerUUID, RouteSession routeSession, RoadPreset roadPreset, boolean onlyAir) {
         this.plugin = plugin;
@@ -57,11 +58,15 @@ public class BuildCalculationTask extends BukkitRunnable {
 
     @Override
     public void run() {
-        List<Location> path = routeSession.getCalculatedPath();
-        if (path == null || path.isEmpty()) {
+        List<Location> originalPath = routeSession.getCalculatedPath();
+        if (originalPath == null || originalPath.isEmpty()) {
             return;
         }
 
+        // スレッドセーフなコピーを作成
+        List<Location> path = new ArrayList<>(originalPath);
+
+        // 順序保持のための最終結果リスト
         List<BlockPlacementInfo> worldBlocks = new ArrayList<>();
         List<BlockPlacementInfo> originalBlocks = new ArrayList<>();
 
@@ -73,15 +78,73 @@ public class BuildCalculationTask extends BukkitRunnable {
             }
         });
 
-        // 並列処理用のスレッドプールを作成
+        // Work-Stealingスレッドプールを作成（負荷分散向上）
         int numThreads = Runtime.getRuntime().availableProcessors();
-        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+        ForkJoinPool executor = new ForkJoinPool(numThreads);
 
-        // 進行状況追跡用変数
-        int totalTasks = (roadPreset.getWidthZ()/2+2) * 2;
+        // 細かい粒度でタスク分割（pathの分割も考慮）
+        int pathChunkSize = Math.max(1, path.size() / (numThreads * 4)); // パスを細かく分割
+        int zSections = (roadPreset.getWidthZ()/2+2) * 2;
+        int pathChunks = (path.size() + pathChunkSize - 1) / pathChunkSize;
+        int totalTasks = zSections * pathChunks;
         AtomicInteger completedTasks = new AtomicInteger(0);
         long startTime = System.currentTimeMillis();
         AtomicReference<Long> lastReportTime = new AtomicReference<>(startTime);
+
+        // 進行状況報告用のスケジューラタスク（安全な実装）
+        BukkitRunnable progressReporter = new BukkitRunnable() {
+            private volatile long lastReportedCompleted = 0;
+
+            @Override
+            public void run() {
+                try {
+                    int completed = completedTasks.get();
+                    Player player = Bukkit.getPlayer(playerUUID);
+
+                    if (player != null && player.isOnline()) {
+                        int currentPercent = (int) ((double) completed / totalTasks * 100);
+                        long elapsedTime = System.currentTimeMillis() - startTime;
+
+                        // ETA計算（completed > 0 の場合のみ）
+                        String etaText = "";
+                        if (completed > 0) {
+                            long estimatedTotalTime = (elapsedTime * totalTasks) / completed;
+                            long remainingTime = estimatedTotalTime - elapsedTime;
+
+                            if (remainingTime > 1000) { // 1秒以上の場合のみETA表示
+                                long remainingSeconds = remainingTime / 1000;
+                                if (remainingSeconds < 60) {
+                                    etaText = " ETA: " + remainingSeconds + "秒";
+                                } else {
+                                    long remainingMinutes = remainingSeconds / 60;
+                                    long remainingSecondsRemainder = remainingSeconds % 60;
+                                    etaText = " ETA: " + remainingMinutes + "分" + remainingSecondsRemainder + "秒";
+                                }
+                            } else if (completed < totalTasks) {
+                                etaText = " ETA: まもなく完了";
+                            }
+                        }
+
+                        // 進捗が更新された場合のみメッセージを送信
+                        if (completed != lastReportedCompleted) {
+                            player.sendMessage(ChatColor.GREEN + "並列計算進行: " + currentPercent + "% (" + completed + "/" + totalTasks + " セクション完了)" + etaText);
+                            lastReportedCompleted = completed;
+                        }
+                    }
+
+                    // 計算完了時にタスクを停止
+                    if (completed >= totalTasks) {
+                        this.cancel();
+                    }
+                } catch (Exception e) {
+                    // 例外をキャッチしてタスクが停止しないようにする
+                    plugin.getLogger().warning("進行状況報告中にエラー: " + e.getMessage());
+                }
+            }
+        };
+
+        // 5秒後から5秒間隔で進行状況を報告
+        progressReporter.runTaskTimer(plugin, 100L, 100L); // 5秒 = 100tick
 
         Bukkit.getScheduler().runTask(plugin, () -> {
             Player player = Bukkit.getPlayer(playerUUID);
@@ -90,8 +153,10 @@ public class BuildCalculationTask extends BukkitRunnable {
             }
         });
 
-        // 並列処理のFutureリスト
-        List<Future<IndexedBlockResult>> futures = new ArrayList<>();
+        // 事前計算削除 - String版プリセットを直接使用（完全にスレッドセーフ）
+
+        // 並列処理のFutureリスト（スレッドセーフ）
+        List<Future<IndexedBlockResult>> futures = Collections.synchronizedList(new ArrayList<>());
 
         // 道路建築アルゴリズム実装済み - 並列処理による高速化
 
@@ -101,26 +166,56 @@ public class BuildCalculationTask extends BukkitRunnable {
                 final int finalZz = zz;
                 final int finalJ = j;
 
-                // 並列処理用のタスクを作成
+                // 並列処理用のタスクを作成（事前計算された文字列を使用）
                 Future<IndexedBlockResult> future = executor.submit(() -> {
-                    return calculateBlocksForZSection(finalZz, finalJ, path, roadPreset, completedTasks, totalTasks, startTime, lastReportTime);
+                    try {
+                        // スレッドローカルでpathのコピーを作成
+                        List<Location> threadPath = new ArrayList<>(path);
+                        return calculateBlocksForZSection(finalZz, finalJ, threadPath, roadPreset, completedTasks);
+                    } catch (Exception e) {
+                        plugin.getLogger().severe("並列計算タスク(zz=" + finalZz + ", j=" + finalJ + ")でエラー: " + e.getMessage());
+                        e.printStackTrace();
+                        throw new RuntimeException("並列計算エラー", e);
+                    }
                 });
 
-                futures.add(future);
+                synchronized(futures) {
+                    futures.add(future);
+                }
             }
         }
 
         // 並列処理の結果を収集し、元の順序通りに結合
-        List<IndexedBlockResult> results = new ArrayList<>();
+        int futuresSize;
+        synchronized(futures) {
+            futuresSize = futures.size();
+        }
+        IndexedBlockResult[] resultsArray = new IndexedBlockResult[futuresSize];
         try {
-            for (Future<IndexedBlockResult> future : futures) {
-                results.add(future.get());
+            for (int i = 0; i < futuresSize; i++) {
+                Future<IndexedBlockResult> future;
+                synchronized(futures) {
+                    future = futures.get(i);
+                }
+                resultsArray[i] = future.get();
             }
         } catch (InterruptedException | ExecutionException e) {
+            progressReporter.cancel(); // 進行状況報告タスクを停止
+
+            // 詳細なエラーログを出力
+            plugin.getLogger().severe("並列計算中に重大なエラーが発生しました:");
+            plugin.getLogger().severe("エラータイプ: " + e.getClass().getSimpleName());
+            plugin.getLogger().severe("エラーメッセージ: " + e.getMessage());
+            if (e.getCause() != null) {
+                plugin.getLogger().severe("原因: " + e.getCause().getClass().getSimpleName() + " - " + e.getCause().getMessage());
+            }
+            e.printStackTrace();
+
             Bukkit.getScheduler().runTask(plugin, () -> {
                 Player player = Bukkit.getPlayer(playerUUID);
                 if (player != null && player.isOnline()) {
                     player.sendMessage(ChatColor.RED + "並列計算中にエラーが発生しました: " + e.getMessage());
+                    player.sendMessage(ChatColor.RED + "詳細はサーバーログを確認してください");
                 }
             });
             executor.shutdown();
@@ -128,8 +223,10 @@ public class BuildCalculationTask extends BukkitRunnable {
         }
 
         executor.shutdown();
+        progressReporter.cancel(); // 計算完了時に進行状況報告タスクを停止
 
-        // 結果を元の順序通りにソートしてマージ
+        // 配列をリストに変換してソート（順序保持を厳密に保証）
+        List<IndexedBlockResult> results = Arrays.asList(resultsArray);
         results.sort((a, b) -> {
             int zzCompare = Integer.compare(a.zIndex, b.zIndex);
             if (zzCompare != 0) return zzCompare;
@@ -160,9 +257,10 @@ public class BuildCalculationTask extends BukkitRunnable {
      * Z軸の特定セクションを並列処理で計算するメソッド
      */
     private IndexedBlockResult calculateBlocksForZSection(int zz, int j, List<Location> path, RoadPreset roadPreset,
-                                                         AtomicInteger completedTasks, int totalTasks, long startTime, AtomicReference<Long> lastReportTime) {
-        List<BlockPlacementInfo> sectionWorldBlocks = new ArrayList<>();
-        List<BlockPlacementInfo> sectionOriginalBlocks = new ArrayList<>();
+                                                         AtomicInteger completedTasks) {
+        try {
+            List<BlockPlacementInfo> sectionWorldBlocks = new ArrayList<>();
+            List<BlockPlacementInfo> sectionOriginalBlocks = new ArrayList<>();
 
         int z;
         if(j < 1){
@@ -191,65 +289,84 @@ public class BuildCalculationTask extends BukkitRunnable {
             // 上方向ベクトル（進行方向と右方向の外積で計算）
             Vector upVector = rightVector.clone().crossProduct(forwardVector).normalize();
 
-            RoadPreset.PresetSlice slice = roadPreset.getSlices().get((int) x);
+            int sliceIndex = (int) x;
             Location location = pathPoint.clone().add(rightVector.clone().multiply(z));
 
             out:
             for (int y = roadPreset.getMinY(); y <= roadPreset.getMaxY()+1; y++) {
 
-                BlockData blockData = slice.getBlockRelativeToAxis(z, y, roadPreset.getAxisZOffset(), roadPreset.getAxisYOffset());
+                // String版プリセットから直接取得（完全にスレッドセーフ）
+                if (sliceIndex >= 0 && sliceIndex < roadPreset.getSlices().size()) {
+                    RoadPreset.PresetSlice slice = roadPreset.getSlices().get(sliceIndex);
+                    String blockDataString = slice.getBlockDataStringRelativeToAxis(z, y, roadPreset.getAxisZOffset(), roadPreset.getAxisYOffset());
 
-                if (blockData != null) {
+                    if (blockDataString != null) {
 
-                    Location worldLocation = location.clone().add(0,y,0);
+                        Location worldLocation = location.clone().add(0,y,0);
 
-                    // BlockDataのクローンを作成して参照共有を防ぐ
-                    BlockData clonedBlockData = blockData.clone();
+                        // 完全String処理による回転（並列処理で安全）
+                        String rotatedBlockDataString = StringBlockRotationUtil.rotateBlockDataString(blockDataString, Math.toRadians(yaw));
 
-                    // パスポイントの向きに合わせてBlockDataを回転（Facingも一緒に回転）
-                    clonedBlockData = BlockRotationUtil.rotateBlockData(clonedBlockData, Math.toRadians(yaw));
-
-                    // 坂を滑らかにするために、ハーフブロックの高さを調整
-                    if(clonedBlockData instanceof Slab){
-                        Slab slab = (Slab) clonedBlockData;
-
-                        // 上のブロックが空気かどうかをチェック
-                        BlockData blockAbove = null;
-                        if (y + 1 <= roadPreset.getMaxY()) {
-                            blockAbove = slice.getBlockRelativeToAxis(z, y + 1, roadPreset.getAxisZOffset(), roadPreset.getAxisYOffset());
+                        BlockData clonedBlockData;
+                        try {
+                            clonedBlockData = Bukkit.createBlockData(rotatedBlockDataString);
+                        } catch (IllegalArgumentException e) {
+                            // 回転処理でエラーが発生した場合は元のブロックデータを使用
+                            plugin.getLogger().warning("回転処理エラー、元データを使用: " + blockDataString + " -> " + rotatedBlockDataString);
+                            clonedBlockData = Bukkit.createBlockData(blockDataString);
+                            rotatedBlockDataString = blockDataString; // Slab処理用にも元データを使用
                         }
 
-                        // ハーフブロックで上が空気の場合、地形に合わせて調整
-                        if (blockAbove == null || blockAbove.getMaterial() == Material.AIR) { // 上が空気または範囲外
-
-                            // 地面の高さと比較してスラブタイプを決定
-                            int groundY = (int) Math.floor(worldLocation.getY());
-                            double heightAboveGround = worldLocation.getY() - groundY;
-
-                            // 地面から0.5ブロック以下の場合はBOTTOMスラブ、それ以外はDOUBLE
-
-                            if(((Slab)blockData).getType() == Slab.Type.BOTTOM) {
-                                if (heightAboveGround < 0.5) {
-                                    break out;
-                                }else {
-                                    slab.setType(Slab.Type.BOTTOM);
-                                }
-                            }else {
-                                if (heightAboveGround < 0.5) {
-                                    slab.setType(Slab.Type.BOTTOM);
-                                } else {
-                                    slab.setType(Slab.Type.DOUBLE);
-                                }
+                        // 坂を滑らかにするために、ハーフブロックの高さを調整（完全String処理）
+                        if(rotatedBlockDataString.contains("_slab")) {
+                            // 上のブロックが空気かどうかをString判定で確認
+                            String aboveBlockDataString = null;
+                            if (y + 1 <= roadPreset.getMaxY()) {
+                                aboveBlockDataString = slice.getBlockDataStringRelativeToAxis(z, y + 1, roadPreset.getAxisZOffset(), roadPreset.getAxisYOffset());
                             }
 
-                        } else {
-                            // 上にブロックがある場合は通常のダブルスラブ
-                            slab.setType(Slab.Type.DOUBLE);
-                        }
-                    }
+                            // ハーフブロックで上が空気の場合、地形に合わせてString操作で調整
+                            boolean hasBlockAbove = (aboveBlockDataString != null && !aboveBlockDataString.contains("air"));
 
-                    sectionOriginalBlocks.add(new BlockPlacementInfo(worldLocation,worldLocation.getBlock().getBlockData()));
-                    sectionWorldBlocks.add(new BlockPlacementInfo(worldLocation, clonedBlockData));
+                            if (!hasBlockAbove) { // 上が空気または範囲外
+                                // 地面の高さと比較してスラブタイプを決定
+                                int groundY = (int) Math.floor(worldLocation.getY());
+                                double heightAboveGround = worldLocation.getY() - groundY;
+
+                                // String解析で元のスラブタイプを判定（BlockData操作完全回避）
+                                boolean isOriginalBottom = rotatedBlockDataString.contains("type=bottom") ||
+                                                         (!rotatedBlockDataString.contains("type=top") && !rotatedBlockDataString.contains("type=double"));
+
+                                // 地面から0.5ブロック以下の場合はBOTTOMスラブ、それ以外はDOUBLE
+                                if(isOriginalBottom) {
+                                    if (heightAboveGround < 0.5) {
+                                        break out;
+                                    } else {
+                                        // String操作でBOTTOMスラブに変更
+                                        String modifiedBlockDataString = rotatedBlockDataString.replaceAll("type=[^,\\]]*", "type=bottom");
+                                        clonedBlockData = Bukkit.createBlockData(modifiedBlockDataString);
+                                    }
+                                } else {
+                                    if (heightAboveGround < 0.5) {
+                                        // String操作でBOTTOMスラブに変更
+                                        String modifiedBlockDataString = rotatedBlockDataString.replaceAll("type=[^,\\]]*", "type=bottom");
+                                        clonedBlockData = Bukkit.createBlockData(modifiedBlockDataString);
+                                    } else {
+                                        // String操作でDOUBLEスラブに変更
+                                        String modifiedBlockDataString = rotatedBlockDataString.replaceAll("type=[^,\\]]*", "type=double");
+                                        clonedBlockData = Bukkit.createBlockData(modifiedBlockDataString);
+                                    }
+                                }
+                            } else {
+                                // 上にブロックがある場合は通常のダブルスラブ（String操作）
+                                String modifiedBlockDataString = rotatedBlockDataString.replaceAll("type=[^,\\]]*", "type=double");
+                                clonedBlockData = Bukkit.createBlockData(modifiedBlockDataString);
+                            }
+                        }
+
+                        sectionOriginalBlocks.add(new BlockPlacementInfo(worldLocation,worldLocation.getBlock().getBlockData()));
+                        sectionWorldBlocks.add(new BlockPlacementInfo(worldLocation, clonedBlockData));
+                    }
                 }
             }
 
@@ -257,47 +374,22 @@ public class BuildCalculationTask extends BukkitRunnable {
             if (x >= roadPreset.getLengthX()) x = 0;
         }
 
-        // 進行状況を更新 (10秒間隔 + ETA表示)
-        int completed = completedTasks.incrementAndGet();
-        long currentTime = System.currentTimeMillis();
-        long lastReport = lastReportTime.get();
+            // 進行状況を更新（スレッドセーフ）
+            completedTasks.incrementAndGet();
 
-        // 10秒経過した場合のみ報告
-        if (currentTime - lastReport >= 10000) { // 10秒 = 10000ms
-            if (lastReportTime.compareAndSet(lastReport, currentTime)) {
-                Bukkit.getScheduler().runTask(plugin, () -> {
-                    Player player = Bukkit.getPlayer(playerUUID);
-                    if (player != null && player.isOnline()) {
-                        int currentPercent = (int) ((double) completed / totalTasks * 100);
-                        long elapsedTime = currentTime - startTime;
+            return new IndexedBlockResult(zz, j, sectionWorldBlocks, sectionOriginalBlocks);
 
-                        // ETA計算: 残り時間 = (経過時間 * 残りタスク) / 完了タスク
-                        String etaText = "";
-                        if (completed > 0) {
-                            long estimatedTotalTime = (elapsedTime * totalTasks) / completed;
-                            long remainingTime = estimatedTotalTime - elapsedTime;
+        } catch (Exception e) {
+            plugin.getLogger().severe("calculateBlocksForZSection(zz=" + zz + ", j=" + j + ")でエラー:");
+            plugin.getLogger().severe("エラータイプ: " + e.getClass().getSimpleName());
+            plugin.getLogger().severe("エラーメッセージ: " + e.getMessage());
+            plugin.getLogger().severe("スタックトレース:");
+            e.printStackTrace();
 
-                            if (remainingTime > 0) {
-                                long remainingSeconds = remainingTime / 1000;
-                                if (remainingSeconds < 60) {
-                                    etaText = " ETA: " + remainingSeconds + "秒";
-                                } else {
-                                    long remainingMinutes = remainingSeconds / 60;
-                                    long remainingSecondsRemainder = remainingSeconds % 60;
-                                    etaText = " ETA: " + remainingMinutes + "分" + remainingSecondsRemainder + "秒";
-                                }
-                            } else {
-                                etaText = " ETA: まもなく完了";
-                            }
-                        }
-
-                        player.sendMessage(ChatColor.GREEN + "並列計算進行: " + currentPercent + "% (" + completed + "/" + totalTasks + " セクション完了)" + etaText);
-                    }
-                });
-            }
+            // 空の結果を返してエラーの伝播を防ぐ
+            completedTasks.incrementAndGet();
+            return new IndexedBlockResult(zz, j, new ArrayList<>(), new ArrayList<>());
         }
-
-        return new IndexedBlockResult(zz, j, sectionWorldBlocks, sectionOriginalBlocks);
     }
 
 }

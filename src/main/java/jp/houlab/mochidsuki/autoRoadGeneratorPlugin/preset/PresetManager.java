@@ -140,10 +140,16 @@ public class PresetManager {
                         try {
                             int z = Integer.parseInt(coords[0]);
                             int y = Integer.parseInt(coords[1]);
-                            BlockData block = Bukkit.createBlockData(String.valueOf(entry.getValue()));
+                            String blockDataString = String.valueOf(entry.getValue());
+
+                            // BlockDataとStringの両方を保存
+                            BlockData block = Bukkit.createBlockData(blockDataString);
                             slice.setBlock(z, y, block);
+                            slice.setBlockString(z, y, blockDataString);
                         } catch (NumberFormatException e) {
                             plugin.getLogger().warning("Invalid coordinate format in preset: " + entry.getKey());
+                        } catch (IllegalArgumentException e) {
+                            plugin.getLogger().warning("Invalid block data in preset '"+presetName+"': " + entry.getValue());
                         }
                     }
                 }

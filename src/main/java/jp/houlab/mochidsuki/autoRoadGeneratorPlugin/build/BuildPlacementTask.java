@@ -77,8 +77,8 @@ public class BuildPlacementTask extends BukkitRunnable {
         if (totalBlocksToPlace > 0) {
             long currentTime = System.currentTimeMillis();
 
-            // 10秒経過した場合のみ報告
-            if (currentTime - lastReportTime >= 10000) { // 10秒 = 10000ms
+            // 5秒経過した場合のみ報告（より頻繁に更新）
+            if (currentTime - lastReportTime >= 5000) { // 5秒 = 5000ms
                 lastReportTime = currentTime;
                 Bukkit.getScheduler().runTask(plugin, () -> {
                     Player player = Bukkit.getPlayer(playerUUID);
