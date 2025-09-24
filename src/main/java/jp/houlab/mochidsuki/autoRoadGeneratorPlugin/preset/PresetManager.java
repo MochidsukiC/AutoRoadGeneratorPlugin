@@ -38,12 +38,14 @@ public class PresetManager {
     }
 
     public void savePreset(RoadPreset preset) {
+        plugin.getLogger().info("savePreset呼び出し: " + preset.getName() + " (スライス数: " + preset.getSlices().size() + ")");
         // Convert legacy format to slice-based format before saving
         RoadPreset sliceBasedPreset = convertToSliceBased(preset);
         saveSliceBasedPreset(sliceBasedPreset);
     }
 
     private void saveSliceBasedPreset(RoadPreset preset) {
+        plugin.getLogger().info("saveSliceBasedPreset開始: " + preset.getName() + " (スライス数: " + preset.getSlices().size() + ")");
         File presetFile = new File(presetsFolder, preset.getName() + ".yml");
         YamlConfiguration config = new YamlConfiguration();
 
@@ -77,8 +79,32 @@ public class PresetManager {
 
         try {
             config.save(presetFile);
+
+            // キャッシュ保存前のプリセット詳細情報
+            plugin.getLogger().info("キャッシュ保存前チェック: " + preset.getName() +
+                " lengthX=" + preset.getLengthX() +
+                " widthZ=" + preset.getWidthZ() +
+                " heightY=" + preset.getHeightY() +
+                " スライス数=" + preset.getSlices().size());
+
+            // 各スライスの詳細もチェック
+            for (int i = 0; i < Math.min(3, preset.getSlices().size()); i++) {
+                RoadPreset.PresetSlice slice = preset.getSlices().get(i);
+                int blockCount = 0;
+                for (int z = 0; z < slice.getWidthZ(); z++) {
+                    for (int y = 0; y < slice.getHeightY(); y++) {
+                        if (slice.getBlock(z, y) != null) {
+                            blockCount++;
+                        }
+                    }
+                }
+                plugin.getLogger().info("  スライス[" + i + "]: xPos=" + slice.getXPosition() +
+                    " size=" + slice.getWidthZ() + "x" + slice.getHeightY() +
+                    " ブロック数=" + blockCount);
+            }
+
             loadedPresets.put(preset.getName(), preset);
-            plugin.getLogger().info("Preset '" + preset.getName() + "' saved successfully (slice-based format).");
+            plugin.getLogger().info("Preset '" + preset.getName() + "' saved successfully (slice-based format). キャッシュに保存完了.");
         } catch (IOException e) {
             plugin.getLogger().severe("Could not save preset '" + preset.getName() + "': " + e.getMessage());
         }
@@ -93,7 +119,25 @@ public class PresetManager {
 
     public RoadPreset loadPreset(String name) {
         if (loadedPresets.containsKey(name)) {
-            return loadedPresets.get(name);
+            RoadPreset cachedPreset = loadedPresets.get(name);
+            plugin.getLogger().info("loadPreset: キャッシュから読み込み '" + name + "' (スライス数: " + cachedPreset.getSlices().size() + ") [CACHED]");
+
+            // キャッシュされたプリセットの詳細をチェック
+            if (cachedPreset.getSlices().size() > 0) {
+                RoadPreset.PresetSlice firstSlice = cachedPreset.getSlices().get(0);
+                int blockCount = 0;
+                for (int z = 0; z < firstSlice.getWidthZ(); z++) {
+                    for (int y = 0; y < firstSlice.getHeightY(); y++) {
+                        if (firstSlice.getBlockDataString(z, y) != null) {
+                            blockCount++;
+                        }
+                    }
+                }
+                plugin.getLogger().info("  [CACHED] 最初のスライス詳細: widthZ=" + firstSlice.getWidthZ() +
+                    ", heightY=" + firstSlice.getHeightY() + ", ブロック数=" + blockCount);
+            }
+
+            return cachedPreset;
         }
 
         File presetFile = new File(presetsFolder, name + ".yml");
@@ -109,7 +153,22 @@ public class PresetManager {
 
         if (preset != null) {
             loadedPresets.put(name, preset);
-            plugin.getLogger().info("Preset '" + name + "' loaded successfully (" + format + " format).");
+            plugin.getLogger().info("Preset '" + name + "' loaded successfully (" + format + " format). ファイルから読み込みキャッシュに保存. スライス数: " + preset.getSlices().size() + " [FILE-LOADED]");
+
+            // ファイルから読み込んだプリセットの詳細をチェック
+            if (preset.getSlices().size() > 0) {
+                RoadPreset.PresetSlice firstSlice = preset.getSlices().get(0);
+                int blockCount = 0;
+                for (int z = 0; z < firstSlice.getWidthZ(); z++) {
+                    for (int y = 0; y < firstSlice.getHeightY(); y++) {
+                        if (firstSlice.getBlockDataString(z, y) != null) {
+                            blockCount++;
+                        }
+                    }
+                }
+                plugin.getLogger().info("  [FILE-LOADED] 最初のスライス詳細: widthZ=" + firstSlice.getWidthZ() +
+                    ", heightY=" + firstSlice.getHeightY() + ", ブロック数=" + blockCount);
+            }
         }
 
         return preset;

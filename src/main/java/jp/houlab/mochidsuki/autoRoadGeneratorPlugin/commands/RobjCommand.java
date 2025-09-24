@@ -261,7 +261,7 @@ public class RobjCommand implements CommandExecutor, TabCompleter {
 
         BuildHistoryManager.addBuildHistory(player.getUniqueId(), originalBlocks);
         Queue<BlockPlacementInfo> placementQueue = new ConcurrentLinkedQueue<>(worldBlocks);
-        new BuildPlacementTask(plugin, player.getUniqueId(), placementQueue).runTaskTimer(plugin, 1, 1);
+        new BuildPlacementTask(plugin, player.getUniqueId(), placementQueue, false, true).runTaskTimer(plugin, 1, 1); // デフォルトでブロック更新有効
 
         player.sendMessage(ChatColor.GREEN + "経路に沿ってオブジェクトを設置しています...");
     }

@@ -9,6 +9,7 @@ public interface PresetData {
 
     enum PresetType {
         ROAD,
-        OBJECT
+        OBJECT,
+        WALL
     }
 }

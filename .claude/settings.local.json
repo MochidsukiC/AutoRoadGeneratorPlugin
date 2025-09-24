@@ -11,7 +11,8 @@
       "Bash(dir \"C:\\Users\\dora2\\IdeaProjects\\AutoRoadGeneratorPlugin\")",
       "Bash(dir:*)",
       "Bash(find:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Read(//c/Users/dora2/Documents/Minecraft/minecraft server/paper-1.20.1/plugins/RoadEditor/presets/**)"
     ],
     "deny": [],
     "ask": []

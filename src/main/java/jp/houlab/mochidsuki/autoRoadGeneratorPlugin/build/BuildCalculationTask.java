@@ -41,19 +41,26 @@ public class BuildCalculationTask extends BukkitRunnable {
     private final RouteSession routeSession;
     private final RoadPreset roadPreset;
     private final boolean onlyAir;
+    private final boolean updateBlockData; // ブロック更新を行うかどうか
     // グローバルロック削除 - String版プリセットで完全にスレッドセーフ
 
-    public BuildCalculationTask(AutoRoadGeneratorPluginMain plugin, UUID playerUUID, RouteSession routeSession, RoadPreset roadPreset, boolean onlyAir) {
+    public BuildCalculationTask(AutoRoadGeneratorPluginMain plugin, UUID playerUUID, RouteSession routeSession, RoadPreset roadPreset, boolean onlyAir, boolean updateBlockData) {
         this.plugin = plugin;
         this.playerUUID = playerUUID;
         this.routeSession = routeSession;
         this.roadPreset = roadPreset;
         this.onlyAir = onlyAir;
+        this.updateBlockData = updateBlockData;
     }
 
     // 既存のコンストラクタとの互換性を保持
     public BuildCalculationTask(AutoRoadGeneratorPluginMain plugin, UUID playerUUID, RouteSession routeSession, RoadPreset roadPreset) {
-        this(plugin, playerUUID, routeSession, roadPreset, false);
+        this(plugin, playerUUID, routeSession, roadPreset, false, true); // デフォルトでブロック更新有効
+    }
+
+    // onlyAirパラメータのみのコンストラクタ
+    public BuildCalculationTask(AutoRoadGeneratorPluginMain plugin, UUID playerUUID, RouteSession routeSession, RoadPreset roadPreset, boolean onlyAir) {
+        this(plugin, playerUUID, routeSession, roadPreset, onlyAir, true); // デフォルトでブロック更新有効
     }
 
     @Override
@@ -250,7 +257,7 @@ public class BuildCalculationTask extends BukkitRunnable {
 
         BuildHistoryManager.addBuildHistory(playerUUID,originalBlocks);
         Queue<BlockPlacementInfo> placementQueue = new ConcurrentLinkedQueue<>(worldBlocks);
-        new BuildPlacementTask(plugin, playerUUID, placementQueue, onlyAir).runTaskTimer(plugin,1,1);
+        new BuildPlacementTask(plugin, playerUUID, placementQueue, onlyAir, updateBlockData).runTaskTimer(plugin,1,1);
     }
 
     /**

@@ -4,9 +4,13 @@ import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands.ReditCommand;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands.RobjCommand;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands.RroadCommand;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands.RundoCommand;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands.WallPresetCommand;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.roadObjects.ObjectBrushListener;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.roadObjects.ObjectCreationSession;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.roadObjects.ObjectPresetManager;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.WallCreationSession;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.WallListener;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.WallPresetManager;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.*;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.*;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build.*;
@@ -30,6 +34,7 @@ public class AutoRoadGeneratorPluginMain extends JavaPlugin {
     private final Set<UUID> editModePlayers = Collections.synchronizedSet(new HashSet<>());
     private final Map<UUID, PresetCreationSession> playerSessions = new ConcurrentHashMap<>();
     private final Map<UUID, ObjectCreationSession> objectCreationSessions = new ConcurrentHashMap<>();
+    private final Map<UUID, WallCreationSession> wallCreationSessions = new ConcurrentHashMap<>();
 
     private RouteCalculator calculator;
     private RouteVisualizer visualizer;
@@ -38,6 +43,7 @@ public class AutoRoadGeneratorPluginMain extends JavaPlugin {
 
     private PresetManager presetManager;
     private ObjectPresetManager objectPresetManager;
+    private WallPresetManager wallPresetManager;
 
     @Override
     public void onEnable() {
@@ -47,6 +53,7 @@ public class AutoRoadGeneratorPluginMain extends JavaPlugin {
 
         this.presetManager = new PresetManager(this);
         this.objectPresetManager = new ObjectPresetManager(this);
+        this.wallPresetManager = new WallPresetManager(this);
 
         RroadCommand rroadCommand = new RroadCommand(this, presetManager, playerSessions);
         getCommand("rroad").setExecutor(rroadCommand);
@@ -55,6 +62,10 @@ public class AutoRoadGeneratorPluginMain extends JavaPlugin {
         RobjCommand robjCommand = new RobjCommand(this, objectCreationSessions, objectPresetManager);
         getCommand("robj").setExecutor(robjCommand);
         getCommand("robj").setTabCompleter(robjCommand);
+
+        WallPresetCommand wallCommand = new WallPresetCommand(this, wallPresetManager, wallCreationSessions);
+        getCommand("rwall").setExecutor(wallCommand);
+        getCommand("rwall").setTabCompleter(wallCommand);
 
         ReditCommand reditCommand = new ReditCommand(this, visualizer);
         getCommand("redit").setExecutor(reditCommand);
@@ -65,6 +76,7 @@ public class AutoRoadGeneratorPluginMain extends JavaPlugin {
         getServer().getPluginManager().registerEvents(routeEditListener, this);
         getServer().getPluginManager().registerEvents(new PresetListener(playerSessions), this);
         getServer().getPluginManager().registerEvents(new ObjectBrushListener(this, objectCreationSessions), this);
+        getServer().getPluginManager().registerEvents(new WallListener(wallCreationSessions), this);
 
         this.routeEditTask = routeEditListener.runTaskTimerAsynchronously(this, 0L, 5L);
 

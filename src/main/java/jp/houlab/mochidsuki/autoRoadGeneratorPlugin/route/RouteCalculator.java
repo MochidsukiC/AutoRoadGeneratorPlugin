@@ -95,10 +95,10 @@ public class RouteCalculator {
 
     /**
      * 指定されたノードにおける接線ベクトルを計算します。
-     * ノードに接続する他のエッジの方向を考慮せず、現在のエッジの方向のみを考慮します。
+     * ちょうど2つのエッジが接続しているノードの場合、滑らかな接続のための角度修正を適用します。
      *
      * @param node 計算対象のノード
-     * @param session 現在のルートセッション (未使用になるが、既存のシグネチャを維持)
+     * @param session 現在のルートセッション
      * @param currentEdge 現在計算中のエッジ
      * @param overrideLocation ノードのLocationを一時的に上書きする場合のLocation
      * @param isStartNodeOfCurrentEdge nodeがcurrentEdgeの始点であるか (true) 終点であるか (false)
@@ -107,6 +107,15 @@ public class RouteCalculator {
     private Vector getTangentVectorForNode(RouteNode node, RouteSession session, RouteEdge currentEdge, @Nullable Location overrideLocation, boolean isStartNodeOfCurrentEdge) {
         Location actualNodeLocation = (overrideLocation != null) ? overrideLocation : node.getLocation();
 
+        // ちょうど2つのエッジが接続している場合、滑らかな接続のための角度修正を適用
+        if (session.hasExactlyTwoConnectedEdges(node)) {
+            Vector smoothTangent = calculateSmoothTangentForTwoEdgeNode(node, session, currentEdge, actualNodeLocation, isStartNodeOfCurrentEdge);
+            if (smoothTangent != null) {
+                return smoothTangent;
+            }
+        }
+
+        // 通常の場合またはスムーズな接線計算が失敗した場合
         if (isStartNodeOfCurrentEdge) {
             // nodeがcurrentEdgeの始点の場合、接線はnode1からnode2への方向
             return currentEdge.getNode2().getLocation().toVector().subtract(actualNodeLocation.toVector()).normalize();
@@ -114,6 +123,80 @@ public class RouteCalculator {
             // nodeがcurrentEdgeの終点の場合、接線はnode1からnode2への方向 (P2に到達する方向)
             return actualNodeLocation.toVector().subtract(currentEdge.getNode1().getLocation().toVector()).normalize();
         }
+    }
+
+    /**
+     * 2つのエッジが接続するノードにおける滑らかな接線ベクトルを計算します。
+     * 数学的に微分可能で連続した滑らかな接続を実現します。
+     *
+     * @param node 2つのエッジが接続するノード
+     * @param session 現在のルートセッション
+     * @param currentEdge 現在計算中のエッジ
+     * @param nodeLocation ノードの位置
+     * @param isStartNodeOfCurrentEdge nodeがcurrentEdgeの始点であるかどうか
+     * @return 計算された滑らかな接線ベクトル、計算できない場合はnull
+     */
+    private Vector calculateSmoothTangentForTwoEdgeNode(RouteNode node, RouteSession session, RouteEdge currentEdge, Location nodeLocation, boolean isStartNodeOfCurrentEdge) {
+        List<RouteEdge> connectedEdges = session.getEdgesConnectedToNode(node);
+        if (connectedEdges.size() != 2) {
+            return null;
+        }
+
+        // 現在のエッジとその他のエッジを特定
+        RouteEdge otherEdge = null;
+        for (RouteEdge edge : connectedEdges) {
+            if (!edge.equals(currentEdge)) {
+                otherEdge = edge;
+                break;
+            }
+        }
+
+        if (otherEdge == null) {
+            return null;
+        }
+
+        // 現在のエッジの方向ベクトル
+        Vector currentEdgeDirection;
+        if (isStartNodeOfCurrentEdge) {
+            // 現在のエッジを出る方向
+            currentEdgeDirection = currentEdge.getNode2().getLocation().toVector().subtract(nodeLocation.toVector());
+        } else {
+            // 現在のエッジに入る方向
+            currentEdgeDirection = nodeLocation.toVector().subtract(currentEdge.getNode1().getLocation().toVector());
+        }
+
+        // もう一方のエッジの方向ベクトル
+        Vector otherEdgeDirection;
+        if (otherEdge.getNode1().equals(node)) {
+            // nodeから出る方向
+            otherEdgeDirection = otherEdge.getNode2().getLocation().toVector().subtract(nodeLocation.toVector());
+        } else {
+            // nodeに入る方向
+            otherEdgeDirection = nodeLocation.toVector().subtract(otherEdge.getNode1().getLocation().toVector());
+        }
+
+        // 方向ベクトルを正規化
+        currentEdgeDirection = currentEdgeDirection.normalize();
+        otherEdgeDirection = otherEdgeDirection.normalize();
+
+        // 2つのベクトルの平均を求めて滑らかな接線とする
+        // これにより、ノードで2つのエッジが滑らかに接続される
+        Vector smoothDirection = currentEdgeDirection.clone().add(otherEdgeDirection).normalize();
+
+        // 接線の方向を現在のエッジに対して適切に設定
+        if (isStartNodeOfCurrentEdge) {
+            // 始点の場合、エッジの進行方向に向ける
+            if (smoothDirection.dot(currentEdgeDirection) < 0) {
+                smoothDirection = smoothDirection.multiply(-1);
+            }
+        } else {
+            // 終点の場合、エッジの到達方向に向ける
+            if (smoothDirection.dot(currentEdgeDirection) < 0) {
+                smoothDirection = smoothDirection.multiply(-1);
+            }
+        }
+
+        return smoothDirection;
     }
 
     /**

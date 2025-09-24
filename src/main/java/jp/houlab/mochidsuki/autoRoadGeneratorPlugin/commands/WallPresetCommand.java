@@ -1,10 +1,10 @@
 package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands;
 
-import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.*;
-import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.*;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build.WallCalculationTask;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.*;
-import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build.*;
-import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.*;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteSession;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.BlockRotationUtil;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -23,15 +23,15 @@ import org.bukkit.util.Vector;
 import java.util.*;
 import java.util.stream.Collectors;
 
-public class RroadCommand implements CommandExecutor, TabCompleter {
+public class WallPresetCommand implements CommandExecutor, TabCompleter {
     private final AutoRoadGeneratorPluginMain plugin;
-    private final PresetManager presetManager;
-    private final Map<UUID, PresetCreationSession> playerSessions;
+    private final WallPresetManager wallPresetManager;
+    private final Map<UUID, WallCreationSession> wallSessions;
 
-    public RroadCommand(AutoRoadGeneratorPluginMain plugin, PresetManager presetManager, Map<UUID, PresetCreationSession> playerSessions) {
+    public WallPresetCommand(AutoRoadGeneratorPluginMain plugin, WallPresetManager wallPresetManager, Map<UUID, WallCreationSession> wallSessions) {
         this.plugin = plugin;
-        this.presetManager = presetManager;
-        this.playerSessions = playerSessions;
+        this.wallPresetManager = wallPresetManager;
+        this.wallSessions = wallSessions;
     }
 
     @Override
@@ -56,36 +56,56 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
                 break;
             case "save":
                 if (args.length < 2) {
-                    player.sendMessage(ChatColor.RED + "使用法: /rroad save <名前>");
+                    player.sendMessage(ChatColor.RED + "使用法: /rwall save <名前>");
                     return true;
                 }
                 handleSave(player, args[1]);
                 break;
             case "paste":
                 if (args.length < 2) {
-                    player.sendMessage(ChatColor.RED + "使用法: /rroad paste <名前>");
+                    player.sendMessage(ChatColor.RED + "使用法: /rwall paste <名前>");
                     return true;
                 }
                 handlePaste(player, args[1]);
                 break;
             case "build":
-                if (args.length < 2) {
-                    player.sendMessage(ChatColor.RED + "使用法: /rroad build <プリセット名> [-onlyair] [--noupdateblockdata]");
+                if (args.length < 3) {
+                    player.sendMessage(ChatColor.RED + "使用法: /rwall build <プリセット名> <xオフセット> [yオフセット] [-onlyair] [--noupdateblockdata]");
                     return true;
                 }
-                boolean onlyAir = false;
-                boolean updateBlockData = true;
+                try {
+                    double xOffset = Double.parseDouble(args[2]);
+                    double yOffset = 0.0; // デフォルトのyオフセット
+                    boolean onlyAir = false;
+                    boolean updateBlockData = true;
 
-                // オプションの解析
-                for (int i = 2; i < args.length; i++) {
-                    if (args[i].equalsIgnoreCase("-onlyair")) {
-                        onlyAir = true;
-                    } else if (args[i].equalsIgnoreCase("--noupdateblockdata")) {
-                        updateBlockData = false;
+                    int optionStartIndex = 3;
+
+                    // 3番目の引数が数値の場合、yオフセットとして処理
+                    if (args.length > 3) {
+                        try {
+                            yOffset = Double.parseDouble(args[3]);
+                            optionStartIndex = 4;
+                        } catch (NumberFormatException e) {
+                            // 3番目の引数が数値でない場合、yオフセットは0でオプションとして処理
+                            yOffset = 0.0;
+                            optionStartIndex = 3;
+                        }
                     }
-                }
 
-                handleBuild(player, args[1], onlyAir, updateBlockData);
+                    // オプションの解析
+                    for (int i = optionStartIndex; i < args.length; i++) {
+                        if (args[i].equalsIgnoreCase("-onlyair")) {
+                            onlyAir = true;
+                        } else if (args[i].equalsIgnoreCase("--noupdateblockdata")) {
+                            updateBlockData = false;
+                        }
+                    }
+
+                    handleBuild(player, args[1], xOffset, yOffset, onlyAir, updateBlockData);
+                } catch (NumberFormatException e) {
+                    player.sendMessage(ChatColor.RED + "オフセット値は数値で入力してください。");
+                }
                 break;
             default:
                 sendHelp(player);
@@ -98,70 +118,46 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return StringUtil.copyPartialMatches(args[0], Arrays.asList("brush", "save", "build", "paste"), new ArrayList<>());
+            return StringUtil.copyPartialMatches(args[0], Arrays.asList("brush", "save", "paste", "build"), new ArrayList<>());
         } else if (args.length == 2) {
-            if (args[0].equalsIgnoreCase("build") || args[0].equalsIgnoreCase("paste")) {
-                return StringUtil.copyPartialMatches(args[1], presetManager.getPresetNames(), new ArrayList<>());
-            }
-        } else if (args.length == 3) {
-            if (args[0].equalsIgnoreCase("build")) {
-                return StringUtil.copyPartialMatches(args[2], Arrays.asList("-onlyair", "--noupdateblockdata"), new ArrayList<>());
+            if (args[0].equalsIgnoreCase("paste") || args[0].equalsIgnoreCase("build")) {
+                return StringUtil.copyPartialMatches(args[1], wallPresetManager.getPresetNames(), new ArrayList<>());
             }
         } else if (args.length == 4) {
             if (args[0].equalsIgnoreCase("build")) {
                 return StringUtil.copyPartialMatches(args[3], Arrays.asList("-onlyair", "--noupdateblockdata"), new ArrayList<>());
             }
+        } else if (args.length == 5) {
+            if (args[0].equalsIgnoreCase("build")) {
+                return StringUtil.copyPartialMatches(args[4], Arrays.asList("-onlyair", "--noupdateblockdata"), new ArrayList<>());
+            }
         }
         return Collections.emptyList();
     }
 
-    private void handleBuild(Player player, String presetName, boolean onlyAir, boolean updateBlockData) {
-        UUID playerUUID = player.getUniqueId();
-        RouteSession routeSession = plugin.getRouteSession(playerUUID);
-        if (routeSession.getCalculatedPath().isEmpty()) {
-            player.sendMessage(ChatColor.RED + "先に経路を設定してください。(/redit brush で経路を設定)");
-            return;
-        }
-
-        RoadPreset roadPreset = presetManager.loadPreset(presetName);
-        if (roadPreset == null) {
-            player.sendMessage(ChatColor.RED + "プリセット '" + presetName + "' が見つかりませんでした。");
-            return;
-        }
-
-        String modeMessage = onlyAir ? " (空気ブロックのみ設置モード)" : "";
-        String updateMessage = updateBlockData ? "" : " (ブロック更新なし)";
-        player.sendMessage(ChatColor.GREEN + "建築計画の計算を開始します... (プリセット: " + presetName + ")" + modeMessage + updateMessage);
-        new BuildCalculationTask(plugin, playerUUID, routeSession, roadPreset, onlyAir, updateBlockData).runTaskAsynchronously(plugin);
-    }
-
-    // 既存のhandleBuildメソッドとの互換性を保持
-    private void handleBuild(Player player, String presetName, boolean onlyAir) {
-        handleBuild(player, presetName, onlyAir, true); // デフォルトでブロック更新有効
-    }
-
     private void handleBrush(Player player) {
-        ItemStack presetBrush = new ItemStack(Material.GOLDEN_AXE);
-        ItemMeta presetMeta = presetBrush.getItemMeta();
-        if (presetMeta != null) {
-            presetMeta.setDisplayName(ChatColor.GOLD + "プリセットブラシ");
-            presetMeta.setLore(Arrays.asList(
-                    ChatColor.YELLOW + "左クリック: 始点を設定",
-                    ChatColor.YELLOW + "右クリック: 終点を設定",
-                    ChatColor.YELLOW + "Shift + クリック: 中心軸の始点/終点を設定"
+        ItemStack wallBrush = new ItemStack(Material.STONE_AXE);
+        ItemMeta wallMeta = wallBrush.getItemMeta();
+        if (wallMeta != null) {
+            wallMeta.setDisplayName(ChatColor.GRAY + "塀ブラシ");
+            wallMeta.setLore(Arrays.asList(
+                    ChatColor.YELLOW + "左クリック: 3D領域の始点を設定",
+                    ChatColor.YELLOW + "右クリック: 3D領域の終点を設定",
+                    ChatColor.YELLOW + "Shift + 左クリック: 中心軸の始点を設定",
+                    ChatColor.YELLOW + "Shift + 右クリック: 中心軸の終点を設定"
             ));
-            presetBrush.setItemMeta(presetMeta);
+            wallBrush.setItemMeta(wallMeta);
         }
-        player.getInventory().addItem(presetBrush);
-        player.sendMessage(ChatColor.GREEN + "プリセット作成用のブラシを入手しました。");
+        player.getInventory().addItem(wallBrush);
+        player.sendMessage(ChatColor.GREEN + "塀プリセット作成用のブラシを入手しました。");
     }
 
     private void handleSave(Player player, String presetName) {
-        PresetCreationSession session = playerSessions.get(player.getUniqueId());
+        WallCreationSession session = wallSessions.get(player.getUniqueId());
 
         // デバッグ情報を追加
         if (session == null) {
-            player.sendMessage(ChatColor.RED + "セッションが見つかりません。まず道路ブラシを使用して座標を設定してください。");
+            player.sendMessage(ChatColor.RED + "セッションが見つかりません。まず塀ブラシを使用して座標を設定してください。");
             return;
         }
 
@@ -173,8 +169,9 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
         debugInfo += "軸終点:" + (session.getAxisEnd() != null ? "設定済み" : "未設定");
         player.sendMessage(debugInfo);
 
-        if (session.getPos1() == null || session.getPos2() == null || session.getAxisStart() == null || session.getAxisEnd() == null) {
-            player.sendMessage(ChatColor.RED + "プリセットを保存するには、すべての座標を設定してください (始点、終点、中心軸の始点、中心軸の終点)。");
+        if (session.getPos1() == null || session.getPos2() == null ||
+            session.getAxisStart() == null || session.getAxisEnd() == null) {
+            player.sendMessage(ChatColor.RED + "塀プリセットを保存するには、すべての座標を設定してください (3D領域の始点、終点、中心軸の始点、中心軸の終点)。");
             return;
         }
 
@@ -189,7 +186,7 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
         Location pos2 = session.getPos2();
         Location axisStart = session.getAxisStart();
         Location axisEnd = session.getAxisEnd();
-        
+
         List<Location> rawAxisPath = getLineBetween(axisStart, axisEnd);
         if (rawAxisPath.isEmpty()) {
             player.sendMessage(ChatColor.RED + "中心軸のパスを生成できませんでした。");
@@ -209,7 +206,7 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
         double sinRot = Math.sin(-rotationAngle);
 
         Location referencePoint = axisStart.getBlock().getLocation();
-        
+
         Location min = getMinLocation(pos1, pos2);
         Location max = getMaxLocation(pos1, pos2);
 
@@ -219,7 +216,7 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
             for (int y = min.getBlockY(); y <= max.getBlockY(); y++) {
                 for (int z = min.getBlockZ(); z <= max.getBlockZ(); z++) {
                     Block block = Objects.requireNonNull(min.getWorld()).getBlockAt(x, y, z);
-                    
+
                     Vector worldOffset = block.getLocation().toVector().subtract(referencePoint.toVector());
 
                     double rotatedX = worldOffset.getX() * cosRot - worldOffset.getZ() * sinRot;
@@ -237,11 +234,11 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
                 }
             }
         }
-        
+
         List<Vector> axisPath = new ArrayList<>();
         for (Location loc : rawAxisPath) {
             Vector worldOffset = loc.toVector().subtract(referencePoint.toVector());
-            
+
             double rotatedX = worldOffset.getX() * cosRot - worldOffset.getZ() * sinRot;
             double rotatedZ = worldOffset.getX() * sinRot + worldOffset.getZ() * cosRot;
             Vector rotatedWorldOffset = new Vector(rotatedX, worldOffset.getY(), rotatedZ);
@@ -271,13 +268,14 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
 
         Vector axisOrigin = axisPath.isEmpty() ? new Vector(0, 0, 0) : axisPath.get(0);
 
+        int axisXOffset = axisOrigin.getBlockX() - minX;
         int axisZOffset = axisOrigin.getBlockZ() - minZ;
         int axisYOffset = axisOrigin.getBlockY() - minY;
 
-        List<RoadPreset.PresetSlice> slices = new ArrayList<>();
+        List<WallPreset.WallSlice> slices = new ArrayList<>();
 
         for (int x = minX; x <= maxX; x++) {
-            RoadPreset.PresetSlice slice = new RoadPreset.PresetSlice(x - minX, widthZ, heightY);
+            WallPreset.WallSlice slice = new WallPreset.WallSlice(x - minX, widthZ, heightY);
 
             for (Vector pos : blocks.keySet()) {
                 if (pos.getBlockX() == x) {
@@ -288,9 +286,8 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
                     int arrayY = relativeY + axisYOffset;
 
                     if (arrayZ >= 0 && arrayZ < widthZ && arrayY >= 0 && arrayY < heightY) {
-                        BlockData blockData = blocks.get(pos);
-                        slice.setBlock(arrayZ, arrayY, blockData);
-                        slice.setBlockString(arrayZ, arrayY, blockData.getAsString());  // 重要: Stringも保存
+                        slice.setBlock(arrayZ, arrayY, blocks.get(pos));
+                        slice.setBlockString(arrayZ, arrayY, blocks.get(pos).getAsString());
                     }
                 }
             }
@@ -298,44 +295,43 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
             slices.add(slice);
         }
 
-        RoadPreset roadPreset = new RoadPreset(presetName, slices, lengthX, widthZ, heightY, axisZOffset, axisYOffset);
-        presetManager.savePreset(roadPreset);
-        
-        player.sendMessage(ChatColor.GREEN + "プリセット '" + presetName + "' を新しい座標系で保存しました。");
-        playerSessions.remove(player.getUniqueId());
+        WallPreset wallPreset = new WallPreset(presetName, slices, lengthX, widthZ, heightY, axisXOffset, axisZOffset, axisYOffset);
+        wallPresetManager.savePreset(wallPreset);
+
+        player.sendMessage(ChatColor.GREEN + "塀プリセット '" + presetName + "' を3D座標系で保存しました。");
+        wallSessions.remove(player.getUniqueId());
     }
 
     private void handlePaste(Player player, String presetName) {
-        RoadPreset preset = presetManager.loadPreset(presetName);
+        WallPreset preset = wallPresetManager.loadPreset(presetName);
 
         if (preset == null) {
-            player.sendMessage(ChatColor.RED + "プリセット '" + presetName + "' が見つかりませんでした。");
+            player.sendMessage(ChatColor.RED + "塀プリセット '" + presetName + "' が見つかりませんでした。");
             return;
         }
 
-        Location pasteReferencePoint = player.getLocation().getBlock().getLocation();
+        Location pasteLocation = player.getLocation().getBlock().getLocation();
+        player.sendMessage(ChatColor.GREEN + "塀プリセット '" + presetName + "' を貼り付け中...");
 
-        player.sendMessage(ChatColor.GREEN + "プリセット '" + presetName + "' を貼り付け中... (基準点: " + formatLocation(pasteReferencePoint) + ")");
-
-        Location axisPoint = pasteReferencePoint;
-
+        // Get player's facing direction
         float yaw = player.getLocation().getYaw();
 
+        // Calculate right vector (perpendicular to facing direction)
         double rightX = Math.cos(Math.toRadians(yaw + 90f));
         double rightZ = Math.sin(Math.toRadians(yaw + 90f));
         Vector rightVector = new Vector(rightX, 0, rightZ).normalize();
 
-        double forwardX = Math.cos(Math.toRadians(yaw));
-        double forwardZ = Math.sin(Math.toRadians(yaw));
-        Vector forwardVector = new Vector(forwardX, 0, forwardZ).normalize();
-
         Vector upVector = new Vector(0, 1, 0);
-
         double pasteRotationAngle = Math.toRadians(yaw);
 
         int blocksPlaced = 0;
 
-        for (RoadPreset.PresetSlice slice : preset.getSlices()) {
+        // Calculate forward vector for 3D placement
+        double forwardX = Math.cos(Math.toRadians(yaw));
+        double forwardZ = Math.sin(Math.toRadians(yaw));
+        Vector forwardVector = new Vector(forwardX, 0, forwardZ).normalize();
+
+        for (WallPreset.WallSlice slice : preset.getSlices()) {
             int sliceX = slice.getXPosition();
 
             for (int z = preset.getMinZ(); z <= preset.getMaxZ(); z++) {
@@ -343,14 +339,18 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
                     BlockData blockData = slice.getBlockRelativeToAxis(z, y, preset.getAxisZOffset(), preset.getAxisYOffset());
 
                     if (blockData != null) {
-                        Location worldLocation = axisPoint.clone()
-                            .add(forwardVector.clone().multiply(sliceX))
+                        // Calculate relative X position from axis
+                        int relativeX = sliceX - preset.getAxisXOffset();
+
+                        // Place block in 3D space with correct X positioning
+                        Location worldLocation = pasteLocation.clone()
+                            .add(forwardVector.clone().multiply(relativeX))
                             .add(upVector.clone().multiply(y))
-                            .add(rightVector.clone().multiply(-z)); // Note the -z here
+                            .add(rightVector.clone().multiply(z));
 
                         if (worldLocation.getWorld() != null) {
                             BlockData rotatedBlockData = BlockRotationUtil.rotateBlockData(blockData, pasteRotationAngle);
-                            worldLocation.getBlock().setBlockData(rotatedBlockData, false);
+                            worldLocation.getBlock().setBlockData(rotatedBlockData, true); // Update block connections
                             blocksPlaced++;
                         }
                     }
@@ -358,17 +358,60 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
             }
         }
 
-        player.sendMessage(ChatColor.GREEN + "プリセット '" + presetName + "' の貼り付けが完了しました。(" + blocksPlaced + "ブロック配置)");
+        player.sendMessage(ChatColor.GREEN + "塀プリセット '" + presetName + "' の貼り付けが完了しました。(" + blocksPlaced + "ブロック配置)");
+    }
+
+    private void handleBuild(Player player, String presetName, double xOffset, double yOffset, boolean onlyAir, boolean updateBlockData) {
+        UUID playerUUID = player.getUniqueId();
+        RouteSession routeSession = plugin.getRouteSession(playerUUID);
+
+        if (routeSession.getCalculatedPath() == null || routeSession.getCalculatedPath().isEmpty()) {
+            player.sendMessage(ChatColor.RED + "先に経路を設定してください。(/redit brush で経路を設定)");
+            return;
+        }
+
+        WallPreset wallPreset = wallPresetManager.loadPreset(presetName);
+        if (wallPreset == null) {
+            player.sendMessage(ChatColor.RED + "塀プリセット '" + presetName + "' が見つかりませんでした。");
+            return;
+        }
+
+        String modeMessage = onlyAir ? " (空気ブロックのみ設置モード)" : "";
+        String updateMessage = updateBlockData ? "" : " (ブロック更新なし)";
+        String xOffsetText = xOffset > 0 ? "右側" : (xOffset < 0 ? "左側" : "中央");
+        String yOffsetText = yOffset != 0 ? ", Y=" + yOffset : "";
+        player.sendMessage(ChatColor.GREEN + "塀建築計算を開始します... (プリセット: " + presetName +
+                          ", X=" + xOffset + " " + xOffsetText + yOffsetText + ")" + modeMessage + updateMessage);
+
+        new WallCalculationTask(plugin, playerUUID, routeSession, wallPreset, xOffset, yOffset, onlyAir, updateBlockData).runTaskAsynchronously(plugin);
+    }
+
+    // 既存のhandleBuildメソッドとの互換性を保持
+    private void handleBuild(Player player, String presetName, double offset, boolean onlyAir) {
+        handleBuild(player, presetName, offset, 0.0, onlyAir, true); // デフォルトでY=0, ブロック更新有効
+    }
+
+    // updateBlockDataパラメータ付きの互換性メソッド
+    private void handleBuild(Player player, String presetName, double offset, boolean onlyAir, boolean updateBlockData) {
+        handleBuild(player, presetName, offset, 0.0, onlyAir, updateBlockData); // デフォルトでY=0
     }
 
     private void sendHelp(Player player) {
-        player.sendMessage(ChatColor.AQUA + "--- 道路コマンド ---");
-        player.sendMessage(ChatColor.YELLOW + "/rroad brush" + ChatColor.WHITE + " - 道路プリセット作成用のブラシを取得します。");
-        player.sendMessage(ChatColor.YELLOW + "/rroad save <名前>" + ChatColor.WHITE + " - 選択範囲を道路プリセットとして保存します。");
-        player.sendMessage(ChatColor.YELLOW + "/rroad build <プリセット名> [-onlyair] [--noupdateblockdata]" + ChatColor.WHITE + " - 経路に沿ってプリセットから道路を建設します。-onlyairオプションで空気ブロックのみに設置。--noupdateblockdataでブロック更新を無効化。");
-        player.sendMessage(ChatColor.YELLOW + "/rroad paste <プリセット名>" + ChatColor.WHITE + " - 足元に道路プリセットを直接設置します。");
+        player.sendMessage(ChatColor.AQUA + "--- 塀コマンド ---");
+        player.sendMessage(ChatColor.YELLOW + "/rwall brush" + ChatColor.WHITE + " - 塀プリセット作成用のブラシを取得します。");
+        player.sendMessage(ChatColor.YELLOW + "/rwall save <名前>" + ChatColor.WHITE + " - 選択範囲を塀プリセットとして保存します。");
+        player.sendMessage(ChatColor.YELLOW + "/rwall paste <名前>" + ChatColor.WHITE + " - 足元に塀プリセットを直接設置します。");
+        player.sendMessage(ChatColor.YELLOW + "/rwall build <プリセット名> <xオフセット> [yオフセット] [-onlyair] [--noupdateblockdata]" + ChatColor.WHITE + " - 道路経路に沿って3D塀を建設します。正の値で右側、負の値で左側。yオフセットで高さ調整可能。");
     }
-    
+
+    private Location getMinLocation(Location loc1, Location loc2) {
+        return new Location(loc1.getWorld(), Math.min(loc1.getX(), loc2.getX()), Math.min(loc1.getY(), loc2.getY()), Math.min(loc1.getZ(), loc2.getZ()));
+    }
+
+    private Location getMaxLocation(Location loc1, Location loc2) {
+        return new Location(loc1.getWorld(), Math.max(loc1.getX(), loc2.getX()), Math.max(loc1.getY(), loc2.getY()), Math.max(loc1.getZ(), loc2.getZ()));
+    }
+
     private List<Location> getLineBetween(Location start, Location end) {
         List<Location> line = new ArrayList<>();
         int x1 = start.getBlockX(), y1 = start.getBlockY(), z1 = start.getBlockZ();
@@ -385,17 +428,5 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
             line.add(new Location(start.getWorld(), x1 + t * (x2 - x1), y1 + t * (y2 - y1), z1 + t * (z2 - z1)).getBlock().getLocation());
         }
         return line;
-    }
-
-    private Location getMinLocation(Location loc1, Location loc2) {
-        return new Location(loc1.getWorld(), Math.min(loc1.getX(), loc2.getX()), Math.min(loc1.getY(), loc2.getY()), Math.min(loc1.getZ(), loc2.getZ()));
-    }
-
-    private Location getMaxLocation(Location loc1, Location loc2) {
-        return new Location(loc1.getWorld(), Math.max(loc1.getX(), loc2.getX()), Math.max(loc1.getY(), loc2.getY()), Math.max(loc1.getZ(), loc2.getZ()));
-    }
-
-    private String formatLocation(Location loc) {
-        return "(" + loc.getBlockX() + ", " + loc.getBlockY() + ", " + loc.getBlockZ() + ")";
     }
 }

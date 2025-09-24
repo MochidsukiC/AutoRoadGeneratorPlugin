@@ -226,4 +226,27 @@ public class RouteSession {
     public void setCalculatedPath(List<Location> calculatedPath) {
         this.calculatedPath = calculatedPath;
     }
+
+    /**
+     * 指定されたノードがちょうど2つのエッジで接続されているかを判定します。
+     * @param node 検査対象のノード
+     * @return ちょうど2つのエッジで接続されている場合true
+     */
+    public boolean hasExactlyTwoConnectedEdges(RouteNode node) {
+        return getEdgesConnectedToNode(node).size() == 2;
+    }
+
+    /**
+     * ちょうど2つのエッジで接続されているすべてのノードを返します。
+     * @return 2つのエッジで接続されているノードのリスト
+     */
+    public List<RouteNode> getNodesWithTwoConnectedEdges() {
+        List<RouteNode> twoEdgeNodes = new ArrayList<>();
+        for (RouteNode node : nodes.values()) {
+            if (hasExactlyTwoConnectedEdges(node)) {
+                twoEdgeNodes.add(node);
+            }
+        }
+        return twoEdgeNodes;
+    }
 }

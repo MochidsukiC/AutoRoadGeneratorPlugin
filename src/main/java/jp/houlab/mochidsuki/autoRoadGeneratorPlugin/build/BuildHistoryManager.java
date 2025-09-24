@@ -43,7 +43,7 @@ public class BuildHistoryManager {
 
         // 取得した履歴をワールドに戻すためのタスクを準備
         Queue<BlockPlacementInfo> placementQueue = new ConcurrentLinkedQueue<>(lastBuild);
-        new BuildPlacementTask(plugin, uuid, placementQueue).runTaskTimer(plugin, 1, 1);
+        new BuildPlacementTask(plugin, uuid, placementQueue, false, true).runTaskTimer(plugin, 1, 1); // デフォルトでブロック更新有効
 
         // 処理した履歴をスタックから削除 (pop)
         playerHistory.remove(lastIndex);

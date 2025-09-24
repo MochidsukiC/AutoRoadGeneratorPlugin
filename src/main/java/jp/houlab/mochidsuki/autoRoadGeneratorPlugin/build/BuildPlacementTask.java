@@ -18,23 +18,31 @@ public class BuildPlacementTask extends BukkitRunnable {
     private final UUID playerUUID;
     private final Queue<BlockPlacementInfo> placementQueue;
     private final boolean onlyAir;
+    private final boolean updateBlockData; // ブロック更新を行うかどうか
     private final int blocksPerTick = 500; // 1ティックあたりの設置ブロック数
     private int totalBlocksPlaced = 0;
     private final int totalBlocksToPlace;
     private long startTime = System.currentTimeMillis();
     private long lastReportTime = startTime;
 
-    public BuildPlacementTask(AutoRoadGeneratorPluginMain plugin, UUID playerUUID, Queue<BlockPlacementInfo> placementQueue, boolean onlyAir) {
+    // メインコンストラクタ（すべてのオプション指定可能）
+    public BuildPlacementTask(AutoRoadGeneratorPluginMain plugin, UUID playerUUID, Queue<BlockPlacementInfo> placementQueue, boolean onlyAir, boolean updateBlockData) {
         this.plugin = plugin;
         this.playerUUID = playerUUID;
         this.placementQueue = placementQueue;
         this.onlyAir = onlyAir;
+        this.updateBlockData = updateBlockData;
         this.totalBlocksToPlace = placementQueue.size();
     }
 
-    // 既存のコンストラクタとの互換性を保持
+    // 既存のコンストラクタとの互換性を保持（onlyAir指定）
+    public BuildPlacementTask(AutoRoadGeneratorPluginMain plugin, UUID playerUUID, Queue<BlockPlacementInfo> placementQueue, boolean onlyAir) {
+        this(plugin, playerUUID, placementQueue, onlyAir, true); // デフォルトでブロック更新を有効
+    }
+
+    // 既存のコンストラクタとの互換性を保持（基本）
     public BuildPlacementTask(AutoRoadGeneratorPluginMain plugin, UUID playerUUID, Queue<BlockPlacementInfo> placementQueue) {
-        this(plugin, playerUUID, placementQueue, false);
+        this(plugin, playerUUID, placementQueue, false, true); // デフォルトでブロック更新を有効
     }
 
     @Override
@@ -62,7 +70,14 @@ public class BuildPlacementTask extends BukkitRunnable {
 
                     // onlyAirが有効な場合は空気ブロックのみに設置
                     if (!onlyAir || blockLocation.getBlock().getType() == Material.AIR) {
-                        blockLocation.getBlock().setBlockData(info.data(), false); // falseで物理的な更新を抑制
+                        org.bukkit.block.data.BlockData blockDataToPlace = info.data();
+
+                        // ブロックデータ更新がONの場合、接続情報を破棄し回転情報のみ維持
+                        if (updateBlockData && isConnectableBlock(blockDataToPlace)) {
+                            blockDataToPlace = removeConnectionData(blockDataToPlace);
+                        }
+
+                        blockLocation.getBlock().setBlockData(blockDataToPlace, updateBlockData);
                         placedThisTick++;
                         totalBlocksPlaced++;
                     } else {
@@ -111,6 +126,52 @@ public class BuildPlacementTask extends BukkitRunnable {
                     }
                 });
             }
+        }
+    }
+
+    /**
+     * 接続可能ブロック（フェンス、壁、ガラス板等）かどうかを判定
+     */
+    private boolean isConnectableBlock(org.bukkit.block.data.BlockData blockData) {
+        return blockData instanceof org.bukkit.block.data.type.Fence ||
+               blockData instanceof org.bukkit.block.data.type.Wall ||
+               blockData instanceof org.bukkit.block.data.type.GlassPane ||
+               blockData instanceof org.bukkit.block.data.type.Gate ||
+               blockData instanceof org.bukkit.block.data.MultipleFacing;
+    }
+
+    /**
+     * 接続情報を削除し、回転情報のみを維持する
+     */
+    private org.bukkit.block.data.BlockData removeConnectionData(org.bukkit.block.data.BlockData originalData) {
+        // 元のブロックデータをクローン
+        org.bukkit.block.data.BlockData cleanData = originalData.clone();
+
+        try {
+            // MultipleFacing（フェンス、ガラス板等）の接続情報をリセット
+            if (cleanData instanceof org.bukkit.block.data.MultipleFacing) {
+                org.bukkit.block.data.MultipleFacing facingData = (org.bukkit.block.data.MultipleFacing) cleanData;
+                // すべての面の接続を無効化
+                for (org.bukkit.block.BlockFace face : facingData.getAllowedFaces()) {
+                    facingData.setFace(face, false);
+                }
+            }
+
+            // Wall（石の壁等）の接続情報をリセット
+            if (cleanData instanceof org.bukkit.block.data.type.Wall) {
+                org.bukkit.block.data.type.Wall wallData = (org.bukkit.block.data.type.Wall) cleanData;
+                // 4方向の水平接続をリセット
+                wallData.setHeight(org.bukkit.block.BlockFace.NORTH, org.bukkit.block.data.type.Wall.Height.NONE);
+                wallData.setHeight(org.bukkit.block.BlockFace.SOUTH, org.bukkit.block.data.type.Wall.Height.NONE);
+                wallData.setHeight(org.bukkit.block.BlockFace.EAST, org.bukkit.block.data.type.Wall.Height.NONE);
+                wallData.setHeight(org.bukkit.block.BlockFace.WEST, org.bukkit.block.data.type.Wall.Height.NONE);
+            }
+
+            return cleanData;
+        } catch (Exception e) {
+            // エラーが発生した場合は元のデータを返す
+            plugin.getLogger().warning("接続データ削除中にエラー: " + e.getMessage());
+            return originalData;
         }
     }
 }

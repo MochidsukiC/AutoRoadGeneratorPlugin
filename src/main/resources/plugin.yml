@@ -9,6 +9,9 @@ commands:
   robj:
     description: Manages object presets and placement.
     usage: /robj <brush|save <name>|place <preset_name> [options]>
+  rwall:
+    description: Manages wall presets and construction along roads.
+    usage: /rwall <brush|save <name>|paste <name>|build <preset_name> <offset> [-onlyair]>
   redit:
     description: Toggles road path editing mode or gets the road brush.
     usage: /redit [brush]
