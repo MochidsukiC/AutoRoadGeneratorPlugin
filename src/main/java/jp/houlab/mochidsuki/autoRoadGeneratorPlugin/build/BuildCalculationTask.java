@@ -1,6 +1,7 @@
 package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build;
 
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.debug.BuildProcessRecorder;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.RoadPreset;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteSession;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.StringBlockRotationUtil;
@@ -26,6 +27,9 @@ public class BuildCalculationTask extends BukkitRunnable {
     private final boolean onlyAir;
     private final boolean updateBlockData;
     private static final double SLAB_THRESHOLD_EPSILON = 1e-6;
+
+    // デバッグ記録システム
+    private BuildProcessRecorder recorder;
 
     public BuildCalculationTask(AutoRoadGeneratorPluginMain plugin, UUID playerUUID, RouteSession routeSession, RoadPreset roadPreset, boolean onlyAir, boolean updateBlockData) {
         this.plugin = plugin;
@@ -53,10 +57,15 @@ public class BuildCalculationTask extends BukkitRunnable {
 
         List<Location> path = new ArrayList<>(originalPath);
 
+        // デバッグ記録システムを初期化
+        this.recorder = new BuildProcessRecorder(playerUUID, roadPreset.getName());
+        recorder.recordCenterPath(path);
+
         Bukkit.getScheduler().runTask(plugin, () -> {
             Player player = Bukkit.getPlayer(playerUUID);
             if (player != null && player.isOnline()) {
                 player.sendMessage(ChatColor.YELLOW + "道路計算中... 経路長: " + path.size() + "ブロック");
+                player.sendMessage(ChatColor.AQUA + "デバッグ記録システム: 有効");
             }
         });
 
@@ -194,12 +203,19 @@ public class BuildCalculationTask extends BukkitRunnable {
 
             BuildHistoryManager.addBuildHistory(playerUUID, originalBlocks);
             Queue<BlockPlacementInfo> placementQueue = new ConcurrentLinkedQueue<>(worldBlocks);
+
+            // デバッグファイルを出力
+            recorder.exportToFiles();
+            player.sendMessage(ChatColor.GREEN + "デバッグファイル出力完了: plugins/AutoRoadGeneratorPlugin/debug/");
+
             new BuildPlacementTask(plugin, playerUUID, placementQueue, onlyAir, updateBlockData).runTaskTimer(plugin, 1, 1);
         });
     }
 
     private List<BlockPlacementInfo> calculateBlocksForLongitudinalSlice(List<Location> centerPath, int zOffset) {
         List<Location> smoothOffsetPath = generateSmoothOffsetPath(centerPath, zOffset);
+        recorder.recordOffsetPath(zOffset, centerPath, smoothOffsetPath);
+
         List<Location> voxelizedPath = voxelizeOffsetPath(smoothOffsetPath);
         return stampRoadCrossSections(voxelizedPath, zOffset);
     }
@@ -211,10 +227,30 @@ public class BuildCalculationTask extends BukkitRunnable {
         for (int i = 0; i < voxelizedPath.size(); i++) {
             Location pathPoint = voxelizedPath.get(i);
             Vector direction = calculateDirectionVector(voxelizedPath, i);
-            double yaw = Math.toDegrees(Math.atan2(-direction.getX(), direction.getZ()));
+            double yawRadians = Math.atan2(direction.getZ(), direction.getX());
+            double yaw = Math.toDegrees(yawRadians);
 
-            int sliceIndex = (int) patternPosition % roadPreset.getLengthX();
+            // 角度を0-360度の範囲に正規化
+            yaw = ((yaw % 360) + 360) % 360;
+
+            // 曲率半径を計算（デバッグ記録用）
+            double curvatureRadius = calculateCurvatureRadius(voxelizedPath, i);
+            if (i > 0 && i < voxelizedPath.size() - 1) {
+                Location p1 = voxelizedPath.get(i - 1);
+                Location p2 = voxelizedPath.get(i);
+                Location p3 = voxelizedPath.get(i + 1);
+                String curveType = Math.abs(curvatureRadius) > 1000.0 ? "STRAIGHT" :
+                                 curvatureRadius > 0 ? "RIGHT_CURVE" : "LEFT_CURVE";
+                recorder.recordCurvatureCalculation(i, p1, p2, p3, curvatureRadius, curveType);
+            }
+
+            // カーブでの曲率に基づくパターン位置調整
+            float adjustedPatternPosition = calculateCurvatureAdjustedPatternPosition(voxelizedPath, i, patternPosition, zOffset);
+            int sliceIndex = (int) adjustedPatternPosition % roadPreset.getLengthX();
             RoadPreset.PresetSlice slice = roadPreset.getSlices().get(sliceIndex);
+
+            // 方向ベクトルと回転角度を記録
+            recorder.recordDirectionAndRotation(i, direction, yaw, curvatureRadius, patternPosition, adjustedPatternPosition);
 
             yLoop: // Label for breaking the inner loop
             for (int y = roadPreset.getMinY(); y <= roadPreset.getMaxY(); y++) {
@@ -223,9 +259,10 @@ public class BuildCalculationTask extends BukkitRunnable {
                 if (blockDataString != null && !blockDataString.contains("air")) {
                     Location blockLocation = pathPoint.clone().add(0, y, 0);
                     BlockData blockData;
+                    String rotatedBlockDataString = blockDataString; // 初期化
 
                     try {
-                        String rotatedBlockDataString = StringBlockRotationUtil.rotateBlockDataString(blockDataString, Math.toRadians(yaw));
+                        rotatedBlockDataString = StringBlockRotationUtil.rotateBlockDataString(blockDataString, Math.toRadians(yaw));
 
                         // --- START OF SLAB LOGIC ---
                         if (rotatedBlockDataString.contains("_slab")) {
@@ -275,10 +312,17 @@ public class BuildCalculationTask extends BukkitRunnable {
 
                     Location finalBlockLocation = new Location(blockLocation.getWorld(), blockLocation.getBlockX(), blockLocation.getBlockY(), blockLocation.getBlockZ());
                     blocks.add(new BlockPlacementInfo(finalBlockLocation, blockData));
+
+                    // ブロック設置を記録（サンプリング：10個に1個）
+                    if (blocks.size() % 10 == 0) {
+                        recorder.recordBlockPlacement(finalBlockLocation, blockDataString, rotatedBlockDataString,
+                                                    zOffset, y, sliceIndex, adjustedPatternPosition);
+                    }
                 }
             }
 
             if (i < voxelizedPath.size() - 1) {
+                // 基準となる中心線の距離で更新（曲率調整は別途行う）
                 patternPosition += voxelizedPath.get(i).distance(voxelizedPath.get(i + 1));
             }
         }
@@ -405,5 +449,100 @@ public class BuildCalculationTask extends BukkitRunnable {
         }
         if (direction.length() < 0.001) return new Vector(1, 0, 0);
         return direction.normalize();
+    }
+
+    /**
+     * カーブでの曲率に基づいてパターン位置を調整します。
+     * 外周では引き延ばし、内周では圧縮することで模様の歪みを補正します。
+     *
+     * @param path ボクセル化されたパス
+     * @param index 現在の位置インデックス
+     * @param basePatternPosition 基準パターン位置
+     * @param zOffset Z軸オフセット（正：右側、負：左側）
+     * @return 曲率調整されたパターン位置
+     */
+    private float calculateCurvatureAdjustedPatternPosition(List<Location> path, int index, float basePatternPosition, int zOffset) {
+        if (path.size() < 3 || index == 0 || index >= path.size() - 1) {
+            return basePatternPosition;
+        }
+
+        // 曲率半径を計算
+        double curvatureRadius = calculateCurvatureRadius(path, index);
+
+        // 曲率半径が十分大きい（直線に近い）場合は調整しない
+        if (Math.abs(curvatureRadius) > 1000.0) {
+            return basePatternPosition;
+        }
+
+        // カーブ方向を判定（正：右カーブ、負：左カーブ）
+        double curveDirection = Math.signum(curvatureRadius);
+
+        // 外周・内周の判定
+        // 右カーブ（正）: 正のzOffsetが外周、負のzOffsetが内周
+        // 左カーブ（負）: 負のzOffsetが外周、正のzOffsetが内周
+        boolean isOuterLane = (curveDirection > 0 && zOffset > 0) || (curveDirection < 0 && zOffset < 0);
+
+        // 曲率補正係数を計算
+        // R_lane = R_center + zOffset （外周は半径が大きく、内周は半径が小さい）
+        double laneRadius = Math.abs(curvatureRadius) + (zOffset * curveDirection);
+
+        // 半径比による補正係数
+        double correctionFactor = 1.0;
+        if (Math.abs(curvatureRadius) > 0.1) {
+            correctionFactor = laneRadius / Math.abs(curvatureRadius);
+        }
+
+        // 補正係数を適用（極端な値を制限）
+        correctionFactor = Math.max(0.5, Math.min(2.0, correctionFactor));
+
+        return basePatternPosition * (float) correctionFactor;
+    }
+
+    /**
+     * 指定した位置での曲率半径を計算します。
+     *
+     * @param path パス
+     * @param index 位置インデックス
+     * @return 曲率半径（正：右カーブ、負：左カーブ、絶対値が大きいほど緩いカーブ）
+     */
+    private double calculateCurvatureRadius(List<Location> path, int index) {
+        if (path.size() < 3 || index <= 0 || index >= path.size() - 1) {
+            return Double.MAX_VALUE; // 直線として扱う
+        }
+
+        Location p1 = path.get(index - 1);
+        Location p2 = path.get(index);
+        Location p3 = path.get(index + 1);
+
+        // 3点から円の半径を計算
+        Vector v1 = p2.toVector().subtract(p1.toVector());
+        Vector v2 = p3.toVector().subtract(p2.toVector());
+
+        // ベクトルの長さ
+        double a = v1.length();
+        double b = v2.length();
+
+        if (a < 0.001 || b < 0.001) {
+            return Double.MAX_VALUE;
+        }
+
+        // 外積によるカーブ方向の判定（Y成分のみ使用、2D計算）
+        double crossProduct = v1.getX() * v2.getZ() - v1.getZ() * v2.getX();
+
+        // 角度の変化量を計算
+        double cosTheta = v1.dot(v2) / (a * b);
+        cosTheta = Math.max(-1.0, Math.min(1.0, cosTheta)); // クランプ
+        double theta = Math.acos(cosTheta);
+
+        if (Math.abs(theta) < 0.001) {
+            return Double.MAX_VALUE; // ほぼ直線
+        }
+
+        // 曲率半径 = 弦長 / (2 * sin(θ/2))
+        double chordLength = p1.distance(p3);
+        double radius = chordLength / (2.0 * Math.sin(theta / 2.0));
+
+        // カーブ方向の符号を付ける
+        return Math.signum(crossProduct) * radius;
     }
 }
