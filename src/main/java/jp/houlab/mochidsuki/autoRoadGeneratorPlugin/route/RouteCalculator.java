@@ -116,13 +116,8 @@ public class RouteCalculator {
         }
 
         // 通常の場合またはスムーズな接線計算が失敗した場合
-        if (isStartNodeOfCurrentEdge) {
-            // nodeがcurrentEdgeの始点の場合、接線はnode1からnode2への方向
-            return currentEdge.getNode2().getLocation().toVector().subtract(actualNodeLocation.toVector()).normalize();
-        } else {
-            // nodeがcurrentEdgeの終点の場合、接線はnode1からnode2への方向 (P2に到達する方向)
-            return actualNodeLocation.toVector().subtract(currentEdge.getNode1().getLocation().toVector()).normalize();
-        }
+        // エッジタイプに基づいた正確な接線ベクトルを計算
+        return calculateAccurateTangentFromEdgeEquation(currentEdge, actualNodeLocation, isStartNodeOfCurrentEdge);
     }
 
     /**
@@ -155,48 +150,153 @@ public class RouteCalculator {
             return null;
         }
 
-        // 現在のエッジの方向ベクトル
-        Vector currentEdgeDirection;
+        // 継続性を確保するため、前のエッジの終点での接線をそのまま使用
         if (isStartNodeOfCurrentEdge) {
-            // 現在のエッジを出る方向
-            currentEdgeDirection = currentEdge.getNode2().getLocation().toVector().subtract(nodeLocation.toVector());
+            // 現在のエッジが始点の場合、前のエッジ（otherEdge）の終点での接線を直接使用
+            boolean isOtherEdgeStartAtNode = otherEdge.getNode1().equals(node);
+            return calculateAccurateTangentFromEdgeEquation(otherEdge, nodeLocation, isOtherEdgeStartAtNode);
         } else {
-            // 現在のエッジに入る方向
-            currentEdgeDirection = nodeLocation.toVector().subtract(currentEdge.getNode1().getLocation().toVector());
+            // 現在のエッジが終点の場合、現在のエッジの終点での接線を使用
+            return calculateAccurateTangentFromEdgeEquation(currentEdge, nodeLocation, isStartNodeOfCurrentEdge);
+        }
+    }
+
+    /**
+     * エッジの方程式に基づいて正確な接線ベクトルを計算します。
+     * 各エッジタイプ（STRAIGHT, ARC, CLOTHOID）の数学的方程式から導出された接線を使用します。
+     *
+     * @param edge 対象エッジ
+     * @param nodeLocation ノードの位置
+     * @param isStartNode ノードがエッジの始点かどうか
+     * @return 計算された正確な接線ベクトル
+     */
+    private Vector calculateAccurateTangentFromEdgeEquation(RouteEdge edge, Location nodeLocation, boolean isStartNode) {
+        Location p1 = edge.getNode1().getLocation();
+        Location p2 = edge.getNode2().getLocation();
+        EdgeMode edgeMode = edge.getEdgeMode();
+        CurveAnchor anchor = edge.getCurveAnchor();
+
+        switch (edgeMode) {
+            case STRAIGHT:
+                return calculateStraightTangentAccurate(p1, p2, isStartNode);
+            case ARC:
+                return calculateArcTangentAccurate(p1, p2, anchor, isStartNode);
+            case CLOTHOID:
+                return calculateClothoidTangentAccurate(p1, p2, anchor, isStartNode);
+            default:
+                // フォールバック: 直線として扱う
+                return calculateStraightTangentAccurate(p1, p2, isStartNode);
+        }
+    }
+
+    /**
+     * 直線エッジの正確な接線ベクトルを計算します。
+     */
+    private Vector calculateStraightTangentAccurate(Location p1, Location p2, boolean isStartNode) {
+        Vector direction = p2.toVector().subtract(p1.toVector()).normalize();
+        return direction; // 直線では始点・終点関係なく同じ方向
+    }
+
+    /**
+     * 円弧エッジの正確な接線ベクトルを計算します。
+     * 円弧上の微小な点差分を使用して接線を計算します。
+     */
+    private Vector calculateArcTangentAccurate(Location p1, Location p2, @Nullable CurveAnchor anchor, boolean isStartNode) {
+        if (anchor == null) {
+            // アンカーがない場合は直線として扱う
+            return calculateStraightTangentAccurate(p1, p2, isStartNode);
         }
 
-        // もう一方のエッジの方向ベクトル
-        Vector otherEdgeDirection;
-        if (otherEdge.getNode1().equals(node)) {
-            // nodeから出る方向
-            otherEdgeDirection = otherEdge.getNode2().getLocation().toVector().subtract(nodeLocation.toVector());
-        } else {
-            // nodeに入る方向
-            otherEdgeDirection = nodeLocation.toVector().subtract(otherEdge.getNode1().getLocation().toVector());
+        Vector p1_xz = new Vector(p1.getX(), 0, p1.getZ());
+        Vector p2_xz = new Vector(p2.getX(), 0, p2.getZ());
+        Vector anchor_xz = new Vector(anchor.getLocation().getX(), 0, anchor.getLocation().getZ());
+
+        CircleData circleData = getCircleFromThreePoints(p1_xz, p2_xz, anchor_xz);
+        if (circleData == null || circleData.radius > 1000 || circleData.radius < 0.1) {
+            return calculateStraightTangentAccurate(p1, p2, isStartNode);
         }
 
-        // 方向ベクトルを正規化
-        currentEdgeDirection = currentEdgeDirection.normalize();
-        otherEdgeDirection = otherEdgeDirection.normalize();
+        Vector center_xz = circleData.center;
+        double radius = circleData.radius;
 
-        // 2つのベクトルの平均を求めて滑らかな接線とする
-        // これにより、ノードで2つのエッジが滑らかに接続される
-        Vector smoothDirection = currentEdgeDirection.clone().add(otherEdgeDirection).normalize();
+        // 角度を計算
+        double startAngle = Math.atan2(p1_xz.getZ() - center_xz.getZ(), p1_xz.getX() - center_xz.getX());
+        double endAngle = Math.atan2(p2_xz.getZ() - center_xz.getZ(), p2_xz.getX() - center_xz.getX());
+        double anchorAngle = Math.atan2(anchor_xz.getZ() - center_xz.getZ(), anchor_xz.getX() - center_xz.getX());
 
-        // 接線の方向を現在のエッジに対して適切に設定
-        if (isStartNodeOfCurrentEdge) {
-            // 始点の場合、エッジの進行方向に向ける
-            if (smoothDirection.dot(currentEdgeDirection) < 0) {
-                smoothDirection = smoothDirection.multiply(-1);
+        // 円弧の方向を決定（アンカーを通る方向）
+        double angleDiff = endAngle - startAngle;
+        double anchorDiff = anchorAngle - startAngle;
+
+        // 角度を正規化
+        if (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+        else if (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+
+        if (anchorDiff > Math.PI) anchorDiff -= 2 * Math.PI;
+        else if (anchorDiff < -Math.PI) anchorDiff += 2 * Math.PI;
+
+        // 円弧が時計回りかどうかを判定
+        boolean isClockwise = (Math.signum(anchorDiff) == Math.signum(angleDiff)) && angleDiff < 0;
+
+        // 円の接線は半径ベクトルに垂直
+        double targetAngle = isStartNode ? startAngle : endAngle;
+
+        // 半径ベクトル（中心から点への方向）
+        double radiusX = Math.cos(targetAngle);
+        double radiusZ = Math.sin(targetAngle);
+
+        // 接線ベクトル（半径ベクトルを90度回転）
+        // 時計回りの円弧の場合: (-sin(θ), cos(θ))
+        // 反時計回りの円弧の場合: (sin(θ), -cos(θ))
+        double tangentX, tangentZ;
+        if (isClockwise) {
+            tangentX = -radiusZ;
+            tangentZ = radiusX;
+        } else {
+            tangentX = radiusZ;
+            tangentZ = -radiusX;
+        }
+
+        Vector tangent = new Vector(tangentX, 0, tangentZ).normalize();
+
+        // エッジの進行方向を考慮
+        // 始点から終点への全体的な方向ベクトル
+        Vector edgeDirection = p2.toVector().subtract(p1.toVector()).normalize();
+
+        // 接線がエッジの進行方向と逆向きの場合は反転
+        if (tangent.dot(edgeDirection) < 0) {
+            tangent = tangent.multiply(-1);
+        }
+
+        return tangent;
+    }
+
+    /**
+     * クロソイドエッジの正確な接線ベクトルを計算します。
+     * Catmull-Romスプラインの方程式から導出された接線を使用します。
+     */
+    private Vector calculateClothoidTangentAccurate(Location p1, Location p2, @Nullable CurveAnchor anchor, boolean isStartNode) {
+        Vector baseDirection = p2.toVector().subtract(p1.toVector()).normalize();
+        double chordLength = p2.toVector().subtract(p1.toVector()).length();
+
+        if (chordLength < 0.1) {
+            return baseDirection;
+        }
+
+        if (anchor != null) {
+            if (isStartNode) {
+                // 始点での接線：p1からanchorへの方向
+                Vector tangent = anchor.getLocation().toVector().subtract(p1.toVector());
+                return tangent.normalize();
+            } else {
+                // 終点での接線：anchorからp2への方向
+                Vector tangent = p2.toVector().subtract(anchor.getLocation().toVector());
+                return tangent.normalize();
             }
         } else {
-            // 終点の場合、エッジの到達方向に向ける
-            if (smoothDirection.dot(currentEdgeDirection) < 0) {
-                smoothDirection = smoothDirection.multiply(-1);
-            }
+            // アンカーがない場合は基本方向
+            return baseDirection;
         }
-
-        return smoothDirection;
     }
 
     /**
@@ -254,11 +354,17 @@ public class RouteCalculator {
                 angleDiff += (angleDiff > 0) ? -2 * Math.PI : 2 * Math.PI;
             }
 
-            for (double t = step; t < 1.0; t += step) {
+            // 曲率に基づく適応的サンプリング
+            double arcLength = Math.abs(angleDiff) * radius;
+            double adaptiveStep = Math.max(step, 0.2 / radius); // 半径が小さいほど密度を高く
+            int numSteps = Math.max(1, (int) Math.ceil(arcLength / (adaptiveStep * arcLength)));
+
+            for (int i = 1; i < numSteps; i++) {
+                double t = (double) i / numSteps;
                 double currentAngle = startAngle + angleDiff * t;
                 double x = center_xz.getX() + radius * Math.cos(currentAngle);
                 double z = center_xz.getZ() + radius * Math.sin(currentAngle);
-                
+
                 // Y座標はP1, Anchor, P2を通る二次ベジェ曲線で補間
                 double y = (1 - t) * (1 - t) * p1.getY() + 2 * (1 - t) * t * anchorLoc.getY() + t * t * p2.getY();
                 path.add(new Location(p1.getWorld(), x, y, z));
@@ -311,7 +417,13 @@ public class RouteCalculator {
                 else if (angleDiff < 0) angleDiff += 2 * Math.PI; 
             }
 
-            for (double t = step; t < 1.0; t += step) {
+            // 曲率に基づく適応的サンプリング
+            double arcLength = Math.abs(angleDiff) * radius;
+            double adaptiveStep = Math.max(step, 0.2 / radius); // 半径が小さいほど密度を高く
+            int numSteps = Math.max(1, (int) Math.ceil(arcLength / (adaptiveStep * arcLength)));
+
+            for (int i = 1; i < numSteps; i++) {
+                double t = (double) i / numSteps;
                 double currentAngle = startAngle + angleDiff * t;
                 double x = center_xz.getX() + radius * Math.cos(currentAngle);
                 double z = center_xz.getZ() + radius * Math.sin(currentAngle);
