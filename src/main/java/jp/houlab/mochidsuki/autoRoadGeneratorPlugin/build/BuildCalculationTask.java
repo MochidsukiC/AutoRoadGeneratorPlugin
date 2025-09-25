@@ -227,11 +227,7 @@ public class BuildCalculationTask extends BukkitRunnable {
         for (int i = 0; i < voxelizedPath.size(); i++) {
             Location pathPoint = voxelizedPath.get(i);
             Vector direction = calculateDirectionVector(voxelizedPath, i);
-            double yawRadians = Math.atan2(direction.getZ(), direction.getX());
-            double yaw = Math.toDegrees(yawRadians);
-
-            // 角度を0-360度の範囲に正規化
-            yaw = ((yaw % 360) + 360) % 360;
+            double yaw = Math.toDegrees(Math.atan2(-direction.getX(), direction.getZ()));
 
             // 曲率半径を計算（デバッグ記録用）
             double curvatureRadius = calculateCurvatureRadius(voxelizedPath, i);
@@ -244,13 +240,12 @@ public class BuildCalculationTask extends BukkitRunnable {
                 recorder.recordCurvatureCalculation(i, p1, p2, p3, curvatureRadius, curveType);
             }
 
-            // カーブでの曲率に基づくパターン位置調整
-            float adjustedPatternPosition = calculateCurvatureAdjustedPatternPosition(voxelizedPath, i, patternPosition, zOffset);
-            int sliceIndex = (int) adjustedPatternPosition % roadPreset.getLengthX();
+            // パターン位置は実際のパスの距離に基づいて計算（曲率調整は不要）
+            int sliceIndex = (int) patternPosition % roadPreset.getLengthX();
             RoadPreset.PresetSlice slice = roadPreset.getSlices().get(sliceIndex);
 
             // 方向ベクトルと回転角度を記録
-            recorder.recordDirectionAndRotation(i, direction, yaw, curvatureRadius, patternPosition, adjustedPatternPosition);
+            recorder.recordDirectionAndRotation(i, direction, yaw, curvatureRadius, patternPosition, patternPosition);
 
             yLoop: // Label for breaking the inner loop
             for (int y = roadPreset.getMinY(); y <= roadPreset.getMaxY(); y++) {
@@ -259,10 +254,8 @@ public class BuildCalculationTask extends BukkitRunnable {
                 if (blockDataString != null && !blockDataString.contains("air")) {
                     Location blockLocation = pathPoint.clone().add(0, y, 0);
                     BlockData blockData;
-                    String rotatedBlockDataString = blockDataString; // 初期化
-
                     try {
-                        rotatedBlockDataString = StringBlockRotationUtil.rotateBlockDataString(blockDataString, Math.toRadians(yaw));
+                        String rotatedBlockDataString = StringBlockRotationUtil.rotateBlockDataString(blockDataString, Math.toRadians(yaw));
 
                         // --- START OF SLAB LOGIC ---
                         if (rotatedBlockDataString.contains("_slab")) {
@@ -316,13 +309,13 @@ public class BuildCalculationTask extends BukkitRunnable {
                     // ブロック設置を記録（サンプリング：10個に1個）
                     if (blocks.size() % 10 == 0) {
                         recorder.recordBlockPlacement(finalBlockLocation, blockDataString, rotatedBlockDataString,
-                                                    zOffset, y, sliceIndex, adjustedPatternPosition);
+                                                    zOffset, y, sliceIndex, patternPosition);
                     }
                 }
             }
 
             if (i < voxelizedPath.size() - 1) {
-                // 基準となる中心線の距離で更新（曲率調整は別途行う）
+                // 実際のオフセットパスの距離でpatternPositionを更新
                 patternPosition += voxelizedPath.get(i).distance(voxelizedPath.get(i + 1));
             }
         }
@@ -451,52 +444,6 @@ public class BuildCalculationTask extends BukkitRunnable {
         return direction.normalize();
     }
 
-    /**
-     * カーブでの曲率に基づいてパターン位置を調整します。
-     * 外周では引き延ばし、内周では圧縮することで模様の歪みを補正します。
-     *
-     * @param path ボクセル化されたパス
-     * @param index 現在の位置インデックス
-     * @param basePatternPosition 基準パターン位置
-     * @param zOffset Z軸オフセット（正：右側、負：左側）
-     * @return 曲率調整されたパターン位置
-     */
-    private float calculateCurvatureAdjustedPatternPosition(List<Location> path, int index, float basePatternPosition, int zOffset) {
-        if (path.size() < 3 || index == 0 || index >= path.size() - 1) {
-            return basePatternPosition;
-        }
-
-        // 曲率半径を計算
-        double curvatureRadius = calculateCurvatureRadius(path, index);
-
-        // 曲率半径が十分大きい（直線に近い）場合は調整しない
-        if (Math.abs(curvatureRadius) > 1000.0) {
-            return basePatternPosition;
-        }
-
-        // カーブ方向を判定（正：右カーブ、負：左カーブ）
-        double curveDirection = Math.signum(curvatureRadius);
-
-        // 外周・内周の判定
-        // 右カーブ（正）: 正のzOffsetが外周、負のzOffsetが内周
-        // 左カーブ（負）: 負のzOffsetが外周、正のzOffsetが内周
-        boolean isOuterLane = (curveDirection > 0 && zOffset > 0) || (curveDirection < 0 && zOffset < 0);
-
-        // 曲率補正係数を計算
-        // R_lane = R_center + zOffset （外周は半径が大きく、内周は半径が小さい）
-        double laneRadius = Math.abs(curvatureRadius) + (zOffset * curveDirection);
-
-        // 半径比による補正係数
-        double correctionFactor = 1.0;
-        if (Math.abs(curvatureRadius) > 0.1) {
-            correctionFactor = laneRadius / Math.abs(curvatureRadius);
-        }
-
-        // 補正係数を適用（極端な値を制限）
-        correctionFactor = Math.max(0.5, Math.min(2.0, correctionFactor));
-
-        return basePatternPosition * (float) correctionFactor;
-    }
 
     /**
      * 指定した位置での曲率半径を計算します。
