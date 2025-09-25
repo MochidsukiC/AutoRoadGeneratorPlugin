@@ -254,8 +254,10 @@ public class BuildCalculationTask extends BukkitRunnable {
                 if (blockDataString != null && !blockDataString.contains("air")) {
                     Location blockLocation = pathPoint.clone().add(0, y, 0);
                     BlockData blockData;
+                    String rotatedBlockDataString = blockDataString; // 初期化
+
                     try {
-                        String rotatedBlockDataString = StringBlockRotationUtil.rotateBlockDataString(blockDataString, Math.toRadians(yaw));
+                        rotatedBlockDataString = StringBlockRotationUtil.rotateBlockDataString(blockDataString, Math.toRadians(yaw));
 
                         // --- START OF SLAB LOGIC ---
                         if (rotatedBlockDataString.contains("_slab")) {
