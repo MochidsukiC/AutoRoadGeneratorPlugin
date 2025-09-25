@@ -14,6 +14,7 @@ import org.bukkit.util.Vector;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 public class BuildCalculationTask extends BukkitRunnable {
@@ -24,6 +25,7 @@ public class BuildCalculationTask extends BukkitRunnable {
     private final RoadPreset roadPreset;
     private final boolean onlyAir;
     private final boolean updateBlockData;
+    private static final double SLAB_THRESHOLD_EPSILON = 1e-6;
 
     public BuildCalculationTask(AutoRoadGeneratorPluginMain plugin, UUID playerUUID, RouteSession routeSession, RoadPreset roadPreset, boolean onlyAir, boolean updateBlockData) {
         this.plugin = plugin;
@@ -61,8 +63,6 @@ public class BuildCalculationTask extends BukkitRunnable {
         int numThreads = Runtime.getRuntime().availableProcessors();
         ForkJoinPool executor = new ForkJoinPool(numThreads);
 
-        // 1. オーケストレーター: 設置順序リストの事前生成
-        // 「外側から中心へ」の順序 `[-max, +max, -max+1, +max-1, ... , 0]` を生成
         List<Integer> zOffsets = new ArrayList<>();
         int maxZ = roadPreset.getWidthZ() / 2;
         for (int i = 0; i <= maxZ; i++) {
@@ -79,11 +79,9 @@ public class BuildCalculationTask extends BukkitRunnable {
             zOffsets.add(0);
         }
 
-        // プリセットの軸オフセットを適用
         List<Integer> executionOrder = zOffsets.stream()
-                .map(z -> z + (roadPreset.getWidthZ() % 2 == 0 ? 0 : 0)) // 偶数幅の場合の調整（必要に応じて）
+                .map(z -> z)
                 .collect(Collectors.toList());
-
 
         Bukkit.getScheduler().runTask(plugin, () -> {
             Player player = Bukkit.getPlayer(playerUUID);
@@ -92,9 +90,52 @@ public class BuildCalculationTask extends BukkitRunnable {
             }
         });
 
+        AtomicInteger completedTasks = new AtomicInteger(0);
+        int totalTasks = executionOrder.size();
+        long startTime = System.currentTimeMillis();
+
+        BukkitRunnable progressReporter = new BukkitRunnable() {
+            @Override
+            public void run() {
+                Player player = Bukkit.getPlayer(playerUUID);
+                if (player == null || !player.isOnline()) {
+                    this.cancel();
+                    return;
+                }
+
+                int completed = completedTasks.get();
+                if (completed >= totalTasks) {
+                    this.cancel();
+                    return;
+                }
+
+                int percent = (int) ((double) completed / totalTasks * 100);
+                long elapsedTime = System.currentTimeMillis() - startTime;
+                String etaText = "";
+                if (completed > 0) {
+                    long estimatedTotalTime = (elapsedTime * totalTasks) / completed;
+                    long remainingTime = estimatedTotalTime - elapsedTime;
+                    if (remainingTime > 1000) {
+                        long remainingSeconds = remainingTime / 1000;
+                        if (remainingSeconds < 60) {
+                            etaText = " ETA: " + remainingSeconds + "秒";
+                        } else {
+                            long remainingMinutes = remainingSeconds / 60;
+                            long remainingSecondsRemainder = remainingSeconds % 60;
+                            etaText = " ETA: " + remainingMinutes + "分" + remainingSecondsRemainder + "秒";
+                        }
+                    } else {
+                        etaText = " ETA: まもなく完了";
+                    }
+                }
+
+                player.sendMessage(ChatColor.GREEN + "並列計算進行: " + percent + "% (" + completed + "/" + totalTasks + " スライス完了)" + etaText);
+            }
+        };
+        progressReporter.runTaskTimer(plugin, 60L, 60L); // 3秒ごとに実行
+
         List<Future<List<BlockPlacementInfo>>> futures = new ArrayList<>();
 
-        // 2. オーケストレーター: 各スライスの計算タスクを投入
         for (int zOffset : executionOrder) {
             Future<List<BlockPlacementInfo>> future = executor.submit(() -> {
                 try {
@@ -102,7 +143,9 @@ public class BuildCalculationTask extends BukkitRunnable {
                 } catch (Exception e) {
                     plugin.getLogger().severe("並列計算タスク(zOffset=" + zOffset + ")でエラー: " + e.getMessage());
                     e.printStackTrace();
-                    return Collections.emptyList(); // Return empty list on error
+                    return Collections.emptyList();
+                } finally {
+                    completedTasks.incrementAndGet();
                 }
             });
             futures.add(future);
@@ -112,18 +155,16 @@ public class BuildCalculationTask extends BukkitRunnable {
         LinkedHashSet<Location> placedBlockLocations = new LinkedHashSet<>();
 
         try {
-            // 3. 結果の統合と重複排除
-            // 投入した順（外側から中心へ）に結果を待つ
             for (Future<List<BlockPlacementInfo>> future : futures) {
                 List<BlockPlacementInfo> sliceBlocks = future.get();
                 for (BlockPlacementInfo info : sliceBlocks) {
-                    // 重複チェック。HashSetに追加できれば、それは新しい場所
                     if (placedBlockLocations.add(info.position())) {
                         worldBlocks.add(info);
                     }
                 }
             }
         } catch (InterruptedException | ExecutionException e) {
+            progressReporter.cancel();
             plugin.getLogger().severe("並列計算結果の収集中にエラー: " + e.getMessage());
             e.printStackTrace();
             executor.shutdown();
@@ -136,9 +177,9 @@ public class BuildCalculationTask extends BukkitRunnable {
             return;
         }
 
+        progressReporter.cancel();
         executor.shutdown();
 
-        // メインスレッドで安全に元のブロック情報を取得し、設置タスクを開始
         Bukkit.getScheduler().runTask(plugin, () -> {
             Player player = Bukkit.getPlayer(playerUUID);
             if (player == null || !player.isOnline()) return;
@@ -157,23 +198,12 @@ public class BuildCalculationTask extends BukkitRunnable {
         });
     }
 
-    /**
-     * 2. 並列スライス生成タスク: 一本の縦列スライスのブロック計算を行う
-     */
     private List<BlockPlacementInfo> calculateBlocksForLongitudinalSlice(List<Location> centerPath, int zOffset) {
-        // 2.1. 独立オフセットパスの生成
         List<Location> smoothOffsetPath = generateSmoothOffsetPath(centerPath, zOffset);
-
-        // 2.2. パスのボクセル化
         List<Location> voxelizedPath = voxelizeOffsetPath(smoothOffsetPath);
-
-        // 2.3. ブロック配置計算
         return stampRoadCrossSections(voxelizedPath, zOffset);
     }
 
-    /**
-     * ボクセル化されたパスに沿って道路断面を配置する
-     */
     private List<BlockPlacementInfo> stampRoadCrossSections(List<Location> voxelizedPath, int zOffset) {
         List<BlockPlacementInfo> blocks = new ArrayList<>();
         float patternPosition = 0f;
@@ -186,27 +216,65 @@ public class BuildCalculationTask extends BukkitRunnable {
             int sliceIndex = (int) patternPosition % roadPreset.getLengthX();
             RoadPreset.PresetSlice slice = roadPreset.getSlices().get(sliceIndex);
 
+            yLoop: // Label for breaking the inner loop
             for (int y = roadPreset.getMinY(); y <= roadPreset.getMaxY(); y++) {
                 String blockDataString = slice.getBlockDataStringRelativeToAxis(zOffset, y, roadPreset.getAxisZOffset(), roadPreset.getAxisYOffset());
 
                 if (blockDataString != null && !blockDataString.contains("air")) {
                     Location blockLocation = pathPoint.clone().add(0, y, 0);
+                    BlockData blockData;
 
                     try {
                         String rotatedBlockDataString = StringBlockRotationUtil.rotateBlockDataString(blockDataString, Math.toRadians(yaw));
-                        BlockData blockData = Bukkit.createBlockData(rotatedBlockDataString);
-                        Location finalBlockLocation = new Location(blockLocation.getWorld(), blockLocation.getBlockX(), blockLocation.getBlockY(), blockLocation.getBlockZ());
-                        blocks.add(new BlockPlacementInfo(finalBlockLocation, blockData));
+
+                        // --- START OF SLAB LOGIC ---
+                        if (rotatedBlockDataString.contains("_slab")) {
+                            String aboveBlockDataString = null;
+                            if (y + 1 <= roadPreset.getMaxY()) {
+                                aboveBlockDataString = slice.getBlockDataStringRelativeToAxis(zOffset, y + 1, roadPreset.getAxisZOffset(), roadPreset.getAxisYOffset());
+                            }
+                            boolean hasBlockAbove = (aboveBlockDataString != null && !aboveBlockDataString.contains("air"));
+
+                            if (!hasBlockAbove) { // This is a surface slab
+                                double heightInBlock = blockLocation.getY() - blockLocation.getBlockY();
+
+                                boolean isOriginalBottom = rotatedBlockDataString.contains("type=bottom") ||
+                                        (!rotatedBlockDataString.contains("type=top") && !rotatedBlockDataString.contains("type=double"));
+
+                                if (isOriginalBottom) {
+                                    // Carving logic: User confirmed this threshold is correct.
+                                    if (heightInBlock < 0.5) {
+                                        break yLoop;
+                                    }
+                                    rotatedBlockDataString = rotatedBlockDataString.replaceAll("type=[^,\\]]+", "type=bottom");
+                                } else { // Original is top or double: This is where BOTTOM vs DOUBLE is decided.
+                                    // Use epsilon to handle floating point inaccuracies near the 0.5 threshold.
+                                    if (heightInBlock < 0.5 - SLAB_THRESHOLD_EPSILON) {
+                                        rotatedBlockDataString = rotatedBlockDataString.replaceAll("type=[^,\\]]+", "type=bottom");
+                                    } else {
+                                        rotatedBlockDataString = rotatedBlockDataString.replaceAll("type=[^,\\]]+", "type=double");
+                                    }
+                                }
+                            } else { // This slab has a block above it
+                                rotatedBlockDataString = rotatedBlockDataString.replaceAll("type=[^,\\]]+", "type=double");
+                            }
+                        }
+                        // --- END OF SLAB LOGIC ---
+
+                        blockData = Bukkit.createBlockData(rotatedBlockDataString);
+
                     } catch (IllegalArgumentException e) {
-                        plugin.getLogger().warning("Block rotation failed for '" + blockDataString + "'. Using original.");
+                        plugin.getLogger().warning("Block data processing failed for '" + blockDataString + "'. Using original.");
                         try {
-                            BlockData originalBlockData = Bukkit.createBlockData(blockDataString);
-                            Location finalBlockLocation = new Location(blockLocation.getWorld(), blockLocation.getBlockX(), blockLocation.getBlockY(), blockLocation.getBlockZ());
-                            blocks.add(new BlockPlacementInfo(finalBlockLocation, originalBlockData));
+                            blockData = Bukkit.createBlockData(blockDataString);
                         } catch (IllegalArgumentException e2) {
                             plugin.getLogger().severe("Failed to create even original block data for: " + blockDataString);
+                            continue; // Skip this invalid block
                         }
                     }
+
+                    Location finalBlockLocation = new Location(blockLocation.getWorld(), blockLocation.getBlockX(), blockLocation.getBlockY(), blockLocation.getBlockZ());
+                    blocks.add(new BlockPlacementInfo(finalBlockLocation, blockData));
                 }
             }
 
@@ -216,8 +284,6 @@ public class BuildCalculationTask extends BukkitRunnable {
         }
         return blocks;
     }
-
-    // --- WallCalculationTaskから移植・改変したメソッド群 ---
 
     private List<Location> generateSmoothOffsetPath(List<Location> roadPath, double offset) {
         List<Location> highResPath = new ArrayList<>();
