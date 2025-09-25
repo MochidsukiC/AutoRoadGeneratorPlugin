@@ -1,48 +1,29 @@
 package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build;
 
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
-import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteSession;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.RoadPreset;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteSession;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.StringBlockRotationUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
-import org.bukkit.Material;
-import org.bukkit.block.data.type.Slab;
-import org.bukkit.entity.Player;
-import org.bukkit.util.Vector;
 import org.bukkit.block.data.BlockData;
+import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.util.Vector;
 
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 public class BuildCalculationTask extends BukkitRunnable {
-
-    // 順序保持のための結果クラス
-    private static class IndexedBlockResult {
-        final int zIndex;
-        final int jIndex;
-        final List<BlockPlacementInfo> worldBlocks;
-        final List<BlockPlacementInfo> originalBlocks;
-
-        IndexedBlockResult(int zIndex, int jIndex, List<BlockPlacementInfo> worldBlocks, List<BlockPlacementInfo> originalBlocks) {
-            this.zIndex = zIndex;
-            this.jIndex = jIndex;
-            this.worldBlocks = worldBlocks;
-            this.originalBlocks = originalBlocks;
-        }
-    }
 
     private final AutoRoadGeneratorPluginMain plugin;
     private final UUID playerUUID;
     private final RouteSession routeSession;
     private final RoadPreset roadPreset;
     private final boolean onlyAir;
-    private final boolean updateBlockData; // ブロック更新を行うかどうか
-    // グローバルロック削除 - String版プリセットで完全にスレッドセーフ
+    private final boolean updateBlockData;
 
     public BuildCalculationTask(AutoRoadGeneratorPluginMain plugin, UUID playerUUID, RouteSession routeSession, RoadPreset roadPreset, boolean onlyAir, boolean updateBlockData) {
         this.plugin = plugin;
@@ -53,14 +34,12 @@ public class BuildCalculationTask extends BukkitRunnable {
         this.updateBlockData = updateBlockData;
     }
 
-    // 既存のコンストラクタとの互換性を保持
     public BuildCalculationTask(AutoRoadGeneratorPluginMain plugin, UUID playerUUID, RouteSession routeSession, RoadPreset roadPreset) {
-        this(plugin, playerUUID, routeSession, roadPreset, false, true); // デフォルトでブロック更新有効
+        this(plugin, playerUUID, routeSession, roadPreset, false, true);
     }
 
-    // onlyAirパラメータのみのコンストラクタ
     public BuildCalculationTask(AutoRoadGeneratorPluginMain plugin, UUID playerUUID, RouteSession routeSession, RoadPreset roadPreset, boolean onlyAir) {
-        this(plugin, playerUUID, routeSession, roadPreset, onlyAir, true); // デフォルトでブロック更新有効
+        this(plugin, playerUUID, routeSession, roadPreset, onlyAir, true);
     }
 
     @Override
@@ -70,14 +49,8 @@ public class BuildCalculationTask extends BukkitRunnable {
             return;
         }
 
-        // スレッドセーフなコピーを作成
         List<Location> path = new ArrayList<>(originalPath);
 
-        // 順序保持のための最終結果リスト
-        List<BlockPlacementInfo> worldBlocks = new ArrayList<>();
-        List<BlockPlacementInfo> originalBlocks = new ArrayList<>();
-
-        // 計算開始をプレイヤーに通知
         Bukkit.getScheduler().runTask(plugin, () -> {
             Player player = Bukkit.getPlayer(playerUUID);
             if (player != null && player.isOnline()) {
@@ -85,318 +58,286 @@ public class BuildCalculationTask extends BukkitRunnable {
             }
         });
 
-        // Work-Stealingスレッドプールを作成（負荷分散向上）
         int numThreads = Runtime.getRuntime().availableProcessors();
         ForkJoinPool executor = new ForkJoinPool(numThreads);
 
-        // 細かい粒度でタスク分割（pathの分割も考慮）
-        int pathChunkSize = Math.max(1, path.size() / (numThreads * 4)); // パスを細かく分割
-        int zSections = (roadPreset.getWidthZ()/2+2) * 2;
-        int pathChunks = (path.size() + pathChunkSize - 1) / pathChunkSize;
-        int totalTasks = zSections * pathChunks;
-        AtomicInteger completedTasks = new AtomicInteger(0);
-        long startTime = System.currentTimeMillis();
-        AtomicReference<Long> lastReportTime = new AtomicReference<>(startTime);
-
-        // 進行状況報告用のスケジューラタスク（安全な実装）
-        BukkitRunnable progressReporter = new BukkitRunnable() {
-            private volatile long lastReportedCompleted = 0;
-
-            @Override
-            public void run() {
-                try {
-                    int completed = completedTasks.get();
-                    Player player = Bukkit.getPlayer(playerUUID);
-
-                    if (player != null && player.isOnline()) {
-                        int currentPercent = (int) ((double) completed / totalTasks * 100);
-                        long elapsedTime = System.currentTimeMillis() - startTime;
-
-                        // ETA計算（completed > 0 の場合のみ）
-                        String etaText = "";
-                        if (completed > 0) {
-                            long estimatedTotalTime = (elapsedTime * totalTasks) / completed;
-                            long remainingTime = estimatedTotalTime - elapsedTime;
-
-                            if (remainingTime > 1000) { // 1秒以上の場合のみETA表示
-                                long remainingSeconds = remainingTime / 1000;
-                                if (remainingSeconds < 60) {
-                                    etaText = " ETA: " + remainingSeconds + "秒";
-                                } else {
-                                    long remainingMinutes = remainingSeconds / 60;
-                                    long remainingSecondsRemainder = remainingSeconds % 60;
-                                    etaText = " ETA: " + remainingMinutes + "分" + remainingSecondsRemainder + "秒";
-                                }
-                            } else if (completed < totalTasks) {
-                                etaText = " ETA: まもなく完了";
-                            }
-                        }
-
-                        // 進捗が更新された場合のみメッセージを送信
-                        if (completed != lastReportedCompleted) {
-                            player.sendMessage(ChatColor.GREEN + "並列計算進行: " + currentPercent + "% (" + completed + "/" + totalTasks + " セクション完了)" + etaText);
-                            lastReportedCompleted = completed;
-                        }
-                    }
-
-                    // 計算完了時にタスクを停止
-                    if (completed >= totalTasks) {
-                        this.cancel();
-                    }
-                } catch (Exception e) {
-                    // 例外をキャッチしてタスクが停止しないようにする
-                    plugin.getLogger().warning("進行状況報告中にエラー: " + e.getMessage());
-                }
+        // 1. オーケストレーター: 設置順序リストの事前生成
+        // 「外側から中心へ」の順序 `[-max, +max, -max+1, +max-1, ... , 0]` を生成
+        List<Integer> zOffsets = new ArrayList<>();
+        int maxZ = roadPreset.getWidthZ() / 2;
+        for (int i = 0; i <= maxZ; i++) {
+            int z1 = -maxZ + i;
+            int z2 = maxZ - i;
+            if (z1 != 0 && !zOffsets.contains(z1)) {
+                zOffsets.add(z1);
             }
-        };
+            if (z2 != 0 && !zOffsets.contains(z2)) {
+                zOffsets.add(z2);
+            }
+        }
+        if (!zOffsets.contains(0)) {
+            zOffsets.add(0);
+        }
 
-        // 5秒後から5秒間隔で進行状況を報告
-        progressReporter.runTaskTimer(plugin, 100L, 100L); // 5秒 = 100tick
+        // プリセットの軸オフセットを適用
+        List<Integer> executionOrder = zOffsets.stream()
+                .map(z -> z + (roadPreset.getWidthZ() % 2 == 0 ? 0 : 0)) // 偶数幅の場合の調整（必要に応じて）
+                .collect(Collectors.toList());
+
 
         Bukkit.getScheduler().runTask(plugin, () -> {
             Player player = Bukkit.getPlayer(playerUUID);
             if (player != null && player.isOnline()) {
-                player.sendMessage(ChatColor.YELLOW + "並列計算開始... CPU使用: " + numThreads + "スレッド");
+                player.sendMessage(ChatColor.YELLOW + "並列計算開始... CPU使用: " + numThreads + "スレッド (" + executionOrder.size() + "スライス)");
             }
         });
 
-        // 事前計算削除 - String版プリセットを直接使用（完全にスレッドセーフ）
+        List<Future<List<BlockPlacementInfo>>> futures = new ArrayList<>();
 
-        // 並列処理のFutureリスト（スレッドセーフ）
-        List<Future<IndexedBlockResult>> futures = Collections.synchronizedList(new ArrayList<>());
-
-        // 道路建築アルゴリズム実装済み - 並列処理による高速化
-
-        // Z軸方向の各セクションを並列処理で実行
-        for (int zz = 0; zz <= roadPreset.getWidthZ()/2+1; zz++) {
-            for(int j = 0; j < 2; j++) {
-                final int finalZz = zz;
-                final int finalJ = j;
-
-                // 並列処理用のタスクを作成（事前計算された文字列を使用）
-                Future<IndexedBlockResult> future = executor.submit(() -> {
-                    try {
-                        // スレッドローカルでpathのコピーを作成
-                        List<Location> threadPath = new ArrayList<>(path);
-                        return calculateBlocksForZSection(finalZz, finalJ, threadPath, roadPreset, completedTasks);
-                    } catch (Exception e) {
-                        plugin.getLogger().severe("並列計算タスク(zz=" + finalZz + ", j=" + finalJ + ")でエラー: " + e.getMessage());
-                        e.printStackTrace();
-                        throw new RuntimeException("並列計算エラー", e);
-                    }
-                });
-
-                synchronized(futures) {
-                    futures.add(future);
-                }
-            }
-        }
-
-        // 並列処理の結果を収集し、元の順序通りに結合
-        int futuresSize;
-        synchronized(futures) {
-            futuresSize = futures.size();
-        }
-        IndexedBlockResult[] resultsArray = new IndexedBlockResult[futuresSize];
-        try {
-            for (int i = 0; i < futuresSize; i++) {
-                Future<IndexedBlockResult> future;
-                synchronized(futures) {
-                    future = futures.get(i);
-                }
-                resultsArray[i] = future.get();
-            }
-        } catch (InterruptedException | ExecutionException e) {
-            progressReporter.cancel(); // 進行状況報告タスクを停止
-
-            // 詳細なエラーログを出力
-            plugin.getLogger().severe("並列計算中に重大なエラーが発生しました:");
-            plugin.getLogger().severe("エラータイプ: " + e.getClass().getSimpleName());
-            plugin.getLogger().severe("エラーメッセージ: " + e.getMessage());
-            if (e.getCause() != null) {
-                plugin.getLogger().severe("原因: " + e.getCause().getClass().getSimpleName() + " - " + e.getCause().getMessage());
-            }
-            e.printStackTrace();
-
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                Player player = Bukkit.getPlayer(playerUUID);
-                if (player != null && player.isOnline()) {
-                    player.sendMessage(ChatColor.RED + "並列計算中にエラーが発生しました: " + e.getMessage());
-                    player.sendMessage(ChatColor.RED + "詳細はサーバーログを確認してください");
+        // 2. オーケストレーター: 各スライスの計算タスクを投入
+        for (int zOffset : executionOrder) {
+            Future<List<BlockPlacementInfo>> future = executor.submit(() -> {
+                try {
+                    return calculateBlocksForLongitudinalSlice(path, zOffset);
+                } catch (Exception e) {
+                    plugin.getLogger().severe("並列計算タスク(zOffset=" + zOffset + ")でエラー: " + e.getMessage());
+                    e.printStackTrace();
+                    return Collections.emptyList(); // Return empty list on error
                 }
             });
+            futures.add(future);
+        }
+
+        List<BlockPlacementInfo> worldBlocks = new ArrayList<>();
+        LinkedHashSet<Location> placedBlockLocations = new LinkedHashSet<>();
+
+        try {
+            // 3. 結果の統合と重複排除
+            // 投入した順（外側から中心へ）に結果を待つ
+            for (Future<List<BlockPlacementInfo>> future : futures) {
+                List<BlockPlacementInfo> sliceBlocks = future.get();
+                for (BlockPlacementInfo info : sliceBlocks) {
+                    // 重複チェック。HashSetに追加できれば、それは新しい場所
+                    if (placedBlockLocations.add(info.position())) {
+                        worldBlocks.add(info);
+                    }
+                }
+            }
+        } catch (InterruptedException | ExecutionException e) {
+            plugin.getLogger().severe("並列計算結果の収集中にエラー: " + e.getMessage());
+            e.printStackTrace();
             executor.shutdown();
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                Player player = Bukkit.getPlayer(playerUUID);
+                if (player != null) {
+                    player.sendMessage(ChatColor.RED + "道路計算中にエラーが発生しました。");
+                }
+            });
             return;
         }
 
         executor.shutdown();
-        progressReporter.cancel(); // 計算完了時に進行状況報告タスクを停止
 
-        // 配列をリストに変換してソート（順序保持を厳密に保証）
-        List<IndexedBlockResult> results = Arrays.asList(resultsArray);
-        results.sort((a, b) -> {
-            int zzCompare = Integer.compare(a.zIndex, b.zIndex);
-            if (zzCompare != 0) return zzCompare;
-            return Integer.compare(a.jIndex, b.jIndex);
-        });
-
-        // 最終的なブロックリストに順序通りに追加
-        for (IndexedBlockResult result : results) {
-            worldBlocks.addAll(result.worldBlocks);
-            originalBlocks.addAll(result.originalBlocks);
-        }
-
-        // 計算完了をプレイヤーに通知
+        // メインスレッドで安全に元のブロック情報を取得し、設置タスクを開始
         Bukkit.getScheduler().runTask(plugin, () -> {
             Player player = Bukkit.getPlayer(playerUUID);
-            if (player != null && player.isOnline()) {
-                String modeText = onlyAir ? " (空気ブロックのみ設置)" : "";
-                player.sendMessage(ChatColor.GREEN + "計算完了! " + worldBlocks.size() + "ブロックの設置を開始します" + modeText);
-            }
-        });
+            if (player == null || !player.isOnline()) return;
 
-        BuildHistoryManager.addBuildHistory(playerUUID,originalBlocks);
-        Queue<BlockPlacementInfo> placementQueue = new ConcurrentLinkedQueue<>(worldBlocks);
-        new BuildPlacementTask(plugin, playerUUID, placementQueue, onlyAir, updateBlockData).runTaskTimer(plugin,1,1);
+            List<BlockPlacementInfo> originalBlocks = new ArrayList<>();
+            for (Location loc : placedBlockLocations) {
+                originalBlocks.add(new BlockPlacementInfo(loc, loc.getBlock().getBlockData()));
+            }
+
+            String modeText = onlyAir ? " (空気ブロックのみ設置)" : "";
+            player.sendMessage(ChatColor.GREEN + "計算完了! " + worldBlocks.size() + "ブロックの設置を開始します" + modeText);
+
+            BuildHistoryManager.addBuildHistory(playerUUID, originalBlocks);
+            Queue<BlockPlacementInfo> placementQueue = new ConcurrentLinkedQueue<>(worldBlocks);
+            new BuildPlacementTask(plugin, playerUUID, placementQueue, onlyAir, updateBlockData).runTaskTimer(plugin, 1, 1);
+        });
     }
 
     /**
-     * Z軸の特定セクションを並列処理で計算するメソッド
+     * 2. 並列スライス生成タスク: 一本の縦列スライスのブロック計算を行う
      */
-    private IndexedBlockResult calculateBlocksForZSection(int zz, int j, List<Location> path, RoadPreset roadPreset,
-                                                         AtomicInteger completedTasks) {
-        try {
-            List<BlockPlacementInfo> sectionWorldBlocks = new ArrayList<>();
-            List<BlockPlacementInfo> sectionOriginalBlocks = new ArrayList<>();
+    private List<BlockPlacementInfo> calculateBlocksForLongitudinalSlice(List<Location> centerPath, int zOffset) {
+        // 2.1. 独立オフセットパスの生成
+        List<Location> smoothOffsetPath = generateSmoothOffsetPath(centerPath, zOffset);
 
-        int z;
-        if(j < 1){
-            z = roadPreset.getMaxZ() - zz;
-        } else {
-            z = roadPreset.getMinZ() + zz;
-        }
+        // 2.2. パスのボクセル化
+        List<Location> voxelizedPath = voxelizeOffsetPath(smoothOffsetPath);
 
-        float x = 0;
-        for (Location pathPoint : path) {
-            float yaw = pathPoint.getYaw();   // 進行方向のヨー角（度）
-            float pitch = pathPoint.getPitch(); // 進行方向のピッチ角（度）
-            float rightYaw = yaw + 90f;       // 右方向のヨー角（+90度回転）
+        // 2.3. ブロック配置計算
+        return stampRoadCrossSections(voxelizedPath, zOffset);
+    }
 
-            // 進行方向ベクトル（ピッチを考慮）
-            double forwardX = Math.cos(Math.toRadians(yaw)) * Math.cos(Math.toRadians(pitch));
-            double forwardY = -Math.sin(Math.toRadians(pitch));
-            double forwardZ = Math.sin(Math.toRadians(yaw)) * Math.cos(Math.toRadians(pitch));
-            Vector forwardVector = new Vector(forwardX, forwardY, forwardZ).normalize();
+    /**
+     * ボクセル化されたパスに沿って道路断面を配置する
+     */
+    private List<BlockPlacementInfo> stampRoadCrossSections(List<Location> voxelizedPath, int zOffset) {
+        List<BlockPlacementInfo> blocks = new ArrayList<>();
+        float patternPosition = 0f;
 
-            // 右方向ベクトル（水平面での法線）
-            double rightX = Math.cos(Math.toRadians(rightYaw));
-            double rightZ = Math.sin(Math.toRadians(rightYaw));
-            Vector rightVector = new Vector(rightX, 0, rightZ).normalize();
+        for (int i = 0; i < voxelizedPath.size(); i++) {
+            Location pathPoint = voxelizedPath.get(i);
+            Vector direction = calculateDirectionVector(voxelizedPath, i);
+            double yaw = Math.toDegrees(Math.atan2(-direction.getX(), direction.getZ()));
 
-            // 上方向ベクトル（進行方向と右方向の外積で計算）
-            Vector upVector = rightVector.clone().crossProduct(forwardVector).normalize();
+            int sliceIndex = (int) patternPosition % roadPreset.getLengthX();
+            RoadPreset.PresetSlice slice = roadPreset.getSlices().get(sliceIndex);
 
-            int sliceIndex = (int) x;
-            Location location = pathPoint.clone().add(rightVector.clone().multiply(z));
+            for (int y = roadPreset.getMinY(); y <= roadPreset.getMaxY(); y++) {
+                String blockDataString = slice.getBlockDataStringRelativeToAxis(zOffset, y, roadPreset.getAxisZOffset(), roadPreset.getAxisYOffset());
 
-            out:
-            for (int y = roadPreset.getMinY(); y <= roadPreset.getMaxY()+1; y++) {
+                if (blockDataString != null && !blockDataString.contains("air")) {
+                    Location blockLocation = pathPoint.clone().add(0, y, 0);
 
-                // String版プリセットから直接取得（完全にスレッドセーフ）
-                if (sliceIndex >= 0 && sliceIndex < roadPreset.getSlices().size()) {
-                    RoadPreset.PresetSlice slice = roadPreset.getSlices().get(sliceIndex);
-                    String blockDataString = slice.getBlockDataStringRelativeToAxis(z, y, roadPreset.getAxisZOffset(), roadPreset.getAxisYOffset());
-
-                    if (blockDataString != null) {
-
-                        Location worldLocation = location.clone().add(0,y,0);
-
-                        // 完全String処理による回転（並列処理で安全）
+                    try {
                         String rotatedBlockDataString = StringBlockRotationUtil.rotateBlockDataString(blockDataString, Math.toRadians(yaw));
-
-                        BlockData clonedBlockData;
+                        BlockData blockData = Bukkit.createBlockData(rotatedBlockDataString);
+                        Location finalBlockLocation = new Location(blockLocation.getWorld(), blockLocation.getBlockX(), blockLocation.getBlockY(), blockLocation.getBlockZ());
+                        blocks.add(new BlockPlacementInfo(finalBlockLocation, blockData));
+                    } catch (IllegalArgumentException e) {
+                        plugin.getLogger().warning("Block rotation failed for '" + blockDataString + "'. Using original.");
                         try {
-                            clonedBlockData = Bukkit.createBlockData(rotatedBlockDataString);
-                        } catch (IllegalArgumentException e) {
-                            // 回転処理でエラーが発生した場合は元のブロックデータを使用
-                            plugin.getLogger().warning("回転処理エラー、元データを使用: " + blockDataString + " -> " + rotatedBlockDataString);
-                            clonedBlockData = Bukkit.createBlockData(blockDataString);
-                            rotatedBlockDataString = blockDataString; // Slab処理用にも元データを使用
+                            BlockData originalBlockData = Bukkit.createBlockData(blockDataString);
+                            Location finalBlockLocation = new Location(blockLocation.getWorld(), blockLocation.getBlockX(), blockLocation.getBlockY(), blockLocation.getBlockZ());
+                            blocks.add(new BlockPlacementInfo(finalBlockLocation, originalBlockData));
+                        } catch (IllegalArgumentException e2) {
+                            plugin.getLogger().severe("Failed to create even original block data for: " + blockDataString);
                         }
-
-                        // 坂を滑らかにするために、ハーフブロックの高さを調整（完全String処理）
-                        if(rotatedBlockDataString.contains("_slab")) {
-                            // 上のブロックが空気かどうかをString判定で確認
-                            String aboveBlockDataString = null;
-                            if (y + 1 <= roadPreset.getMaxY()) {
-                                aboveBlockDataString = slice.getBlockDataStringRelativeToAxis(z, y + 1, roadPreset.getAxisZOffset(), roadPreset.getAxisYOffset());
-                            }
-
-                            // ハーフブロックで上が空気の場合、地形に合わせてString操作で調整
-                            boolean hasBlockAbove = (aboveBlockDataString != null && !aboveBlockDataString.contains("air"));
-
-                            if (!hasBlockAbove) { // 上が空気または範囲外
-                                // 地面の高さと比較してスラブタイプを決定
-                                int groundY = (int) Math.floor(worldLocation.getY());
-                                double heightAboveGround = worldLocation.getY() - groundY;
-
-                                // String解析で元のスラブタイプを判定（BlockData操作完全回避）
-                                boolean isOriginalBottom = rotatedBlockDataString.contains("type=bottom") ||
-                                                         (!rotatedBlockDataString.contains("type=top") && !rotatedBlockDataString.contains("type=double"));
-
-                                // 地面から0.5ブロック以下の場合はBOTTOMスラブ、それ以外はDOUBLE
-                                if(isOriginalBottom) {
-                                    if (heightAboveGround < 0.5) {
-                                        break out;
-                                    } else {
-                                        // String操作でBOTTOMスラブに変更
-                                        String modifiedBlockDataString = rotatedBlockDataString.replaceAll("type=[^,\\]]*", "type=bottom");
-                                        clonedBlockData = Bukkit.createBlockData(modifiedBlockDataString);
-                                    }
-                                } else {
-                                    if (heightAboveGround < 0.5) {
-                                        // String操作でBOTTOMスラブに変更
-                                        String modifiedBlockDataString = rotatedBlockDataString.replaceAll("type=[^,\\]]*", "type=bottom");
-                                        clonedBlockData = Bukkit.createBlockData(modifiedBlockDataString);
-                                    } else {
-                                        // String操作でDOUBLEスラブに変更
-                                        String modifiedBlockDataString = rotatedBlockDataString.replaceAll("type=[^,\\]]*", "type=double");
-                                        clonedBlockData = Bukkit.createBlockData(modifiedBlockDataString);
-                                    }
-                                }
-                            } else {
-                                // 上にブロックがある場合は通常のダブルスラブ（String操作）
-                                String modifiedBlockDataString = rotatedBlockDataString.replaceAll("type=[^,\\]]*", "type=double");
-                                clonedBlockData = Bukkit.createBlockData(modifiedBlockDataString);
-                            }
-                        }
-
-                        sectionOriginalBlocks.add(new BlockPlacementInfo(worldLocation,worldLocation.getBlock().getBlockData()));
-                        sectionWorldBlocks.add(new BlockPlacementInfo(worldLocation, clonedBlockData));
                     }
                 }
             }
 
-            x += 0.5f;
-            if (x >= roadPreset.getLengthX()) x = 0;
+            if (i < voxelizedPath.size() - 1) {
+                patternPosition += voxelizedPath.get(i).distance(voxelizedPath.get(i + 1));
+            }
+        }
+        return blocks;
+    }
+
+    // --- WallCalculationTaskから移植・改変したメソッド群 ---
+
+    private List<Location> generateSmoothOffsetPath(List<Location> roadPath, double offset) {
+        List<Location> highResPath = new ArrayList<>();
+        double maxSegmentDistance = 0.5;
+
+        for (int i = 0; i < roadPath.size() - 1; i++) {
+            Location current = roadPath.get(i);
+            Location next = roadPath.get(i + 1);
+            highResPath.add(current);
+            double segmentDistance = current.distance(next);
+            if (segmentDistance > maxSegmentDistance) {
+                int subdivisions = (int) Math.ceil(segmentDistance / maxSegmentDistance);
+                subdivisions = Math.min(subdivisions, 1000);
+                for (int j = 1; j < subdivisions; j++) {
+                    double t = (double) j / subdivisions;
+                    Location intermediate = current.clone().multiply(1 - t).add(next.toVector().multiply(t));
+                    intermediate.setWorld(current.getWorld());
+                    highResPath.add(intermediate);
+                }
+            }
+        }
+        if (!roadPath.isEmpty()) {
+            highResPath.add(roadPath.get(roadPath.size() - 1));
         }
 
-            // 進行状況を更新（スレッドセーフ）
-            completedTasks.incrementAndGet();
+        List<Location> initialOffsetPath = new ArrayList<>();
+        for (int i = 0; i < highResPath.size(); i++) {
+            Vector rightVector = calculateRightVector(highResPath, i);
+            Location offsetPoint = highResPath.get(i).clone().add(rightVector.multiply(offset));
+            initialOffsetPath.add(offsetPoint);
+        }
 
-            return new IndexedBlockResult(zz, j, sectionWorldBlocks, sectionOriginalBlocks);
+        return recursivelySubdivideUntilDense(initialOffsetPath, maxSegmentDistance);
+    }
 
-        } catch (Exception e) {
-            plugin.getLogger().severe("calculateBlocksForZSection(zz=" + zz + ", j=" + j + ")でエラー:");
-            plugin.getLogger().severe("エラータイプ: " + e.getClass().getSimpleName());
-            plugin.getLogger().severe("エラーメッセージ: " + e.getMessage());
-            plugin.getLogger().severe("スタックトレース:");
-            e.printStackTrace();
+    private List<Location> recursivelySubdivideUntilDense(List<Location> path, double maxDistance) {
+        if (path.size() < 2) return new ArrayList<>(path);
+        List<Location> result = new ArrayList<>();
+        boolean needsAnotherPass = false;
+        for (int i = 0; i < path.size() - 1; i++) {
+            Location current = path.get(i);
+            Location next = path.get(i + 1);
+            result.add(current);
+            double segmentDistance = current.distance(next);
+            if (segmentDistance > maxDistance) {
+                needsAnotherPass = true;
+                int subdivisions = (int) Math.ceil(segmentDistance / maxDistance);
+                subdivisions = Math.min(subdivisions, 100);
+                for (int j = 1; j < subdivisions; j++) {
+                    double t = (double) j / subdivisions;
+                    Location intermediate = current.clone().multiply(1 - t).add(next.toVector().multiply(t));
+                    intermediate.setWorld(current.getWorld());
+                    result.add(intermediate);
+                }
+            }
+        }
+        if (!path.isEmpty()) result.add(path.get(path.size() - 1));
+        return needsAnotherPass ? recursivelySubdivideUntilDense(result, maxDistance) : result;
+    }
 
-            // 空の結果を返してエラーの伝播を防ぐ
-            completedTasks.incrementAndGet();
-            return new IndexedBlockResult(zz, j, new ArrayList<>(), new ArrayList<>());
+    private Vector calculateRightVector(List<Location> path, int index) {
+        Vector forwardVector;
+        if (index == 0) {
+            forwardVector = path.size() > 1 ? path.get(1).toVector().subtract(path.get(0).toVector()).normalize() : new Vector(1, 0, 0);
+        } else if (index == path.size() - 1) {
+            forwardVector = path.get(index).toVector().subtract(path.get(index - 1).toVector()).normalize();
+        } else {
+            Vector incoming = path.get(index).toVector().subtract(path.get(index - 1).toVector()).normalize();
+            Vector outgoing = path.get(index + 1).toVector().subtract(path.get(index).toVector()).normalize();
+            forwardVector = incoming.add(outgoing).multiply(0.5).normalize();
+        }
+        return new Vector(-forwardVector.getZ(), 0, forwardVector.getX()).normalize();
+    }
+
+    private List<Location> voxelizeOffsetPath(List<Location> smoothPath) {
+        if (smoothPath.isEmpty()) return new ArrayList<>();
+        List<Location> snappedPath = new ArrayList<>();
+        Location lastSnapped = null;
+        for (Location smoothPoint : smoothPath) {
+            Location snapped = new Location(smoothPoint.getWorld(), Math.floor(smoothPoint.getX()) + 0.5, smoothPoint.getY(), Math.floor(smoothPoint.getZ()) + 0.5);
+            if (lastSnapped == null || !isSameBlockXZ(lastSnapped, snapped)) {
+                if (lastSnapped != null) {
+                    addIntermediatePoints(snappedPath, lastSnapped, snapped);
+                }
+                snappedPath.add(snapped);
+                lastSnapped = snapped;
+            }
+        }
+        return snappedPath;
+    }
+
+    private void addIntermediatePoints(List<Location> path, Location from, Location to) {
+        double deltaX = to.getX() - from.getX();
+        double deltaZ = to.getZ() - from.getZ();
+        if (Math.abs(deltaX) > 0.1 && Math.abs(deltaZ) > 0.1) {
+            double yAtCorner = from.getY() + (to.getY() - from.getY()) * (Math.abs(deltaX) / (Math.abs(deltaX) + Math.abs(deltaZ)));
+            Location corner = new Location(from.getWorld(), to.getX(), yAtCorner, from.getZ());
+            path.add(corner);
         }
     }
 
+    private boolean isSameBlockXZ(Location loc1, Location loc2) {
+        return loc1.getBlockX() == loc2.getBlockX() && loc1.getBlockZ() == loc2.getBlockZ();
+    }
+
+    private Vector calculateDirectionVector(List<Location> path, int index) {
+        if (path.size() < 2) return new Vector(1, 0, 0);
+        Vector direction;
+        if (index == 0) {
+            direction = path.get(1).toVector().subtract(path.get(0).toVector());
+        } else if (index == path.size() - 1) {
+            direction = path.get(index).toVector().subtract(path.get(index - 1).toVector());
+        } else {
+            Vector incoming = path.get(index).toVector().subtract(path.get(index - 1).toVector());
+            Vector outgoing = path.get(index + 1).toVector().subtract(path.get(index).toVector());
+            if (incoming.length() > 0.001) incoming.normalize();
+            if (outgoing.length() > 0.001) outgoing.normalize();
+            direction = incoming.add(outgoing).multiply(0.5);
+        }
+        if (direction.length() < 0.001) return new Vector(1, 0, 0);
+        return direction.normalize();
+    }
 }
