@@ -1,5 +1,9 @@
 package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util;
 
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.i18n.MessageManager;
+import org.bukkit.ChatColor;
+import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import java.lang.reflect.Method;
 
@@ -62,5 +66,31 @@ public class PlayerMessageUtil {
 
         // sendActionBarが利用できない場合はタイトルをクリア
         player.sendTitle("", "", 0, 1, 0);
+    }
+
+    /**
+     * CommandSenderに翻訳されたメッセージを送信します。
+     * @param plugin プラグインインスタンス
+     * @param sender メッセージを送信する対象
+     * @param messageKey メッセージキー
+     * @param args 置換パラメータ
+     */
+    public static void sendTranslatedMessage(AutoRoadGeneratorPluginMain plugin, CommandSender sender, String messageKey, Object... args) {
+        MessageManager messageManager = plugin.getMessageManager();
+        String message = messageManager.getMessage(messageKey, args);
+        sender.sendMessage(ChatColor.translateAlternateColorCodes('&', message));
+    }
+
+    /**
+     * プレイヤーのアクションバーに翻訳されたメッセージを送信します。
+     * @param plugin プラグインインスタンス
+     * @param player 対象プレイヤー
+     * @param messageKey メッセージキー
+     * @param args 置換パラメータ
+     */
+    public static void sendTranslatedActionBar(AutoRoadGeneratorPluginMain plugin, Player player, String messageKey, Object... args) {
+        MessageManager messageManager = plugin.getMessageManager();
+        String message = messageManager.getMessage(messageKey, args);
+        sendActionBar(player, ChatColor.translateAlternateColorCodes('&', message));
     }
 }

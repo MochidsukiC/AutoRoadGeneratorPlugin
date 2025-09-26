@@ -20,7 +20,9 @@ public class PresetManager {
 
     public PresetManager(JavaPlugin plugin) {
         this.plugin = plugin;
-        this.presetsFolder = new File(plugin.getDataFolder(), "presets");
+        // preset/road/フォルダに変更
+        File presetFolder = new File(plugin.getDataFolder(), "preset");
+        this.presetsFolder = new File(presetFolder, "road");
         if (!presetsFolder.exists()) {
             presetsFolder.mkdirs();
         }

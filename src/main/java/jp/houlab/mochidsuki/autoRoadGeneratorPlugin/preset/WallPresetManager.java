@@ -20,7 +20,9 @@ public class WallPresetManager {
 
     public WallPresetManager(JavaPlugin plugin) {
         this.plugin = plugin;
-        this.presetsFolder = new File(plugin.getDataFolder(), "wallpresets");
+        // preset/wall/フォルダに変更
+        File presetFolder = new File(plugin.getDataFolder(), "preset");
+        this.presetsFolder = new File(presetFolder, "wall");
         if (!presetsFolder.exists()) {
             presetsFolder.mkdirs();
         }

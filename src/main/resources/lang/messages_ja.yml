@@ -1,0 +1,149 @@
+# 日本語メッセージファイル
+
+# 基本メッセージ
+command:
+  player_only: "このコマンドはプレイヤーのみが実行できます。"
+  no_permission: "このコマンドを実行する権限がありません。"
+  invalid_usage: "使用法が正しくありません。"
+
+# 道路コマンド関連
+road:
+  brush_received: "道路ブラシを入手しました。"
+  edit_mode_enabled: "編集モードを開始しました。"
+  edit_mode_disabled: "編集モードを終了しました。"
+  preset_saved: "道路プリセット '{0}' を保存しました。"
+  preset_saved_new_coord: "プリセット '{0}' を新しい座標系で保存しました。"
+  preset_not_found: "道路プリセット '{0}' が見つかりませんでした。"
+  preset_pasting: "道路プリセット '{0}' を貼り付け中..."
+  preset_pasting_with_ref: "プリセット '{0}' を貼り付け中... (基準点: {1})"
+  preset_paste_complete: "道路プリセット '{0}' の貼り付けが完了しました。({1}ブロック配置)"
+  building_started: "道路建築計算を開始します... (プリセット: {0})"
+  building_started_details: "建築計算を開始します... (プリセット: {0}, {1} セグメント){2}{3}"
+  route_not_set: "先に経路を設定してください。(/redit brush で経路を設定)"
+  target_block: "ブロックをターゲットしてください。"
+
+  usage_save: "使用法: /rroad save <名前>"
+  usage_paste: "使用法: /rroad paste <名前>"
+  usage_build: "使用法: /rroad build <プリセット名> [-onlyair] [--noupdateblockdata]"
+
+  help_title: "--- 道路コマンド ---"
+  help_brush: "/rroad brush - 道路プリセット作成用のブラシを取得します。"
+  help_save: "/rroad save <名前> - 選択範囲を道路プリセットとして保存します。"
+  help_paste: "/rroad paste <名前> - 足元に道路プリセットを直接設置します。"
+  help_build_long: "/rroad build <プリセット名> [-onlyair] [--noupdateblockdata] - 経路に沿ってプリセットから道路を建設します。-onlyairオプションで空気ブロックのみに設置。--noupdateblockdataでブロック更新を無効化。"
+
+  brush_name: "§6道路プリセットブラシ"
+  brush_lore1: "§e左クリック: 始点を設定"
+  brush_lore2: "§e右クリック: 終点を設定"
+  brush_lore3: "§eShift + クリック: 中心軸の始点/終点を設定"
+
+# 塀コマンド関連
+wall:
+  brush_received: "塀プリセット作成用のブラシを入手しました。"
+  brush_name: "§7塀ブラシ"
+  brush_lore1: "§e左クリック: 3D領域の始点を設定"
+  brush_lore2: "§e右クリック: 3D領域の終点を設定"
+  brush_lore3: "§eShift + 左クリック: 中心軸の始点を設定"
+  brush_lore4: "§eShift + 右クリック: 中心軸の終点を設定"
+
+  session_not_found: "セッションが見つかりません。まず塀ブラシを使用して座標を設定してください。"
+  coordinates_incomplete: "塀プリセットを保存するには、すべての座標を設定してください (3D領域の始点、終点、中心軸の始点、中心軸の終点)。"
+  preset_saved: "塀プリセット '{0}' を3D座標系で保存しました。"
+  preset_not_found: "塀プリセット '{0}' が見つかりませんでした。"
+  preset_pasting: "塀プリセット '{0}' を貼り付け中..."
+  preset_paste_complete: "塀プリセット '{0}' の貼り付けが完了しました。({1}ブロック配置)"
+  building_started: "塀建築計算を開始します... (プリセット: {0}, オフセット: X={1}, Y={2})"
+  building_started_details: "塀建築計算を開始します... (プリセット: {0}, X={1} {2}{3}){4}{5}"
+  build_mode_air: " (空気ブロックのみ設置モード)"
+  build_mode_no_update: " (ブロック更新なし)"
+  build_offset_right: "右側"
+  build_offset_left: "左側"
+  build_offset_center: "中央"
+
+  help_title: "--- 塀コマンド ---"
+  help_brush: "/rwall brush - 塀プリセット作成用のブラシを取得します。"
+  help_save: "/rwall save <名前> - 選択範囲を塀プリセットとして保存します。"
+  help_paste: "/rwall paste <名前> - 足元に塀プリセットを直接設置します。"
+  help_build_long: "/rwall build <プリセット名> <xオフセット> [yオフセット] [-onlyair] [--noupdateblockdata] - 道路経路に沿って3D塀を建設します。正の値で右側、負の値で左側。yオフセットで高さ調整可能。"
+
+  usage_save: "使用法: /rwall save <名前>"
+  usage_paste: "使用法: /rwall paste <名前>"
+  usage_build: "使用法: /rwall build <プリセット名> <xオフセット> [yオフセット] [-onlyair] [--noupdateblockdata]"
+  offset_invalid: "オフセット値は数値で入力してください。"
+
+# オブジェクトコマンド関連
+object:
+  brush_received: "オブジェクトプリセット作成用のブラシを入手しました。"
+  brush_usage: "§e左クリックで始点/終点を、右クリックで原点を設定します。"
+  brush_not_ready: "§c先にブラシで始点、終点、原点を設定してください。"
+  brush_name: "§6オブジェクトプリセットブラシ"
+
+  preset_saved: "オブジェクトプリセット '{0}' を保存しました。"
+  preset_not_found: "オブジェクトプリセット '{0}' が見つかりませんでした。"
+  selection_empty: "§c選択範囲が空です。プリセットは作成されませんでした。"
+
+  placing_objects: "§a経路に沿ってオブジェクトを設置しています..."
+  placement_complete: "オブジェクトの配置が完了しました。({0}ブロック配置)"
+
+  start_point_set: "§a[1/3] 始点を設定しました。"
+  end_point_set: "§a[2/3] 終点を設定しました。"
+  origin_point_set: "§a[3/3] 原点を設定しました。"
+  all_points_set: "§aすべての地点が設定されました！ §e/robj save <プリセット名>§a でオブジェクトプリセットを保存してください。"
+
+  path_not_found: "§c道路の経路が見つかりません。先に経路を計算してください。"
+  invalid_arguments: "§c引数が不正です。 /robj でヘルプを確認してください。"
+
+  usage_save: "使用法: /robj save <プリセット名>"
+  usage_place: "使用法: /robj place <プリセット名> [オプション]"
+
+  help_title: "--- オブジェクトコマンド ---"
+  help_brush: "/robj brush - オブジェクトプリセット作成用のブラシを取得します。"
+  help_save: "/robj save <名前> - 選択範囲をオブジェクトプリセットとして保存します。"
+  help_place_long: "/robj place <プリセット名> [オプション] - 経路に沿ってオブジェクトを設置します。"
+  help_place_options: "§7設置オプション: --interval <m>, --offset <x,y,z>, --rotate <deg>, --flip <x|z>"
+
+# 編集コマンド関連
+edit:
+  brush_received: "道路ブラシを入手しました。"
+  mode_enabled: "編集モードを開始しました。"
+  mode_disabled: "編集モードを終了しました。"
+  brush_name: "§6道路ブラシ"
+  brush_usage: "§eクリックした地点をルートに追加します。"
+
+# 元に戻すコマンド関連
+undo:
+  success: "最後に行った設置を取り消しました。"
+  no_history: "取り消す操作がありません。"
+
+# プリセット操作関連
+preset:
+  start_point_set: "始点を設定しました: ({0}, {1}, {2})"
+  end_point_set: "終点を設定しました: ({0}, {1}, {2})"
+  center_start_set: "中心軸の始点を設定しました: ({0}, {1}, {2})"
+  center_end_set: "中心軸の終点を設定しました: ({0}, {1}, {2})"
+  saved_successfully: "プリセット '{0}' を保存しました。"
+  session_not_found: "セッションが見つかりません。まずブラシを使用して座標を設定してください。"
+  coordinates_incomplete: "プリセットを保存するには、すべての座標を設定してください (始点、終点、中心軸の始点、中心軸の終点)。"
+  different_worlds: "すべての選択座標は同じワールド内にある必要があります。"
+  path_generation_failed: "中心軸のパスを生成できませんでした。"
+
+# エラーメッセージ
+error:
+  file_not_found: "ファイルが見つかりません: {0}"
+  save_failed: "保存に失敗しました: {0}"
+  load_failed: "読み込みに失敗しました: {0}"
+  invalid_coordinates: "座標が無効です。"
+  world_mismatch: "ワールドが一致しません。"
+
+# 言語関連
+language:
+  current: "現在の言語: {0}"
+  available: "利用可能な言語: {0}"
+  changed: "言語を {0} から {1} に変更しました。"
+  unsupported: "サポートされていない言語です: {0}"
+  usage: "使用法: /lang [ja|en]"
+
+# プラグイン関連
+plugin:
+  enabled: "RoadEditor plugin has been enabled."
+  disabled: "RoadEditor plugin has been disabled."

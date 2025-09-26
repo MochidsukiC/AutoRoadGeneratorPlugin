@@ -3,9 +3,10 @@ package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build.WallCalculationTask;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.*;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteEdge;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteSession;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.BlockRotationUtil;
-import org.bukkit.ChatColor;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.PlayerMessageUtil;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
@@ -21,7 +22,6 @@ import org.bukkit.util.StringUtil;
 import org.bukkit.util.Vector;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 public class WallPresetCommand implements CommandExecutor, TabCompleter {
     private final AutoRoadGeneratorPluginMain plugin;
@@ -37,7 +37,7 @@ public class WallPresetCommand implements CommandExecutor, TabCompleter {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player)) {
-            sender.sendMessage("このコマンドはプレイヤーのみが実行できます。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, sender, "command.player_only");
             return true;
         }
 
@@ -56,44 +56,41 @@ public class WallPresetCommand implements CommandExecutor, TabCompleter {
                 break;
             case "save":
                 if (args.length < 2) {
-                    player.sendMessage(ChatColor.RED + "使用法: /rwall save <名前>");
+                    PlayerMessageUtil.sendTranslatedMessage(plugin, player, "wall.usage_save");
                     return true;
                 }
                 handleSave(player, args[1]);
                 break;
             case "paste":
                 if (args.length < 2) {
-                    player.sendMessage(ChatColor.RED + "使用法: /rwall paste <名前>");
+                    PlayerMessageUtil.sendTranslatedMessage(plugin, player, "wall.usage_paste");
                     return true;
                 }
                 handlePaste(player, args[1]);
                 break;
             case "build":
                 if (args.length < 3) {
-                    player.sendMessage(ChatColor.RED + "使用法: /rwall build <プリセット名> <xオフセット> [yオフセット] [-onlyair] [--noupdateblockdata]");
+                    PlayerMessageUtil.sendTranslatedMessage(plugin, player, "wall.usage_build");
                     return true;
                 }
                 try {
                     double xOffset = Double.parseDouble(args[2]);
-                    double yOffset = 0.0; // デフォルトのyオフセット
+                    double yOffset = 0.0; // Default y-offset
                     boolean onlyAir = false;
                     boolean updateBlockData = true;
 
                     int optionStartIndex = 3;
 
-                    // 3番目の引数が数値の場合、yオフセットとして処理
                     if (args.length > 3) {
                         try {
                             yOffset = Double.parseDouble(args[3]);
                             optionStartIndex = 4;
                         } catch (NumberFormatException e) {
-                            // 3番目の引数が数値でない場合、yオフセットは0でオプションとして処理
                             yOffset = 0.0;
                             optionStartIndex = 3;
                         }
                     }
 
-                    // オプションの解析
                     for (int i = optionStartIndex; i < args.length; i++) {
                         if (args[i].equalsIgnoreCase("-onlyair")) {
                             onlyAir = true;
@@ -104,7 +101,7 @@ public class WallPresetCommand implements CommandExecutor, TabCompleter {
 
                     handleBuild(player, args[1], xOffset, yOffset, onlyAir, updateBlockData);
                 } catch (NumberFormatException e) {
-                    player.sendMessage(ChatColor.RED + "オフセット値は数値で入力してください。");
+                    PlayerMessageUtil.sendTranslatedMessage(plugin, player, "wall.offset_invalid");
                 }
                 break;
             default:
@@ -139,46 +136,37 @@ public class WallPresetCommand implements CommandExecutor, TabCompleter {
         ItemStack wallBrush = new ItemStack(Material.STONE_AXE);
         ItemMeta wallMeta = wallBrush.getItemMeta();
         if (wallMeta != null) {
-            wallMeta.setDisplayName(ChatColor.GRAY + "塀ブラシ");
+            wallMeta.setDisplayName(plugin.getMessageManager().getMessage("wall.brush_name"));
             wallMeta.setLore(Arrays.asList(
-                    ChatColor.YELLOW + "左クリック: 3D領域の始点を設定",
-                    ChatColor.YELLOW + "右クリック: 3D領域の終点を設定",
-                    ChatColor.YELLOW + "Shift + 左クリック: 中心軸の始点を設定",
-                    ChatColor.YELLOW + "Shift + 右クリック: 中心軸の終点を設定"
+                    plugin.getMessageManager().getMessage("wall.brush_lore1"),
+                    plugin.getMessageManager().getMessage("wall.brush_lore2"),
+                    plugin.getMessageManager().getMessage("wall.brush_lore3"),
+                    plugin.getMessageManager().getMessage("wall.brush_lore4")
             ));
             wallBrush.setItemMeta(wallMeta);
         }
         player.getInventory().addItem(wallBrush);
-        player.sendMessage(ChatColor.GREEN + "塀プリセット作成用のブラシを入手しました。");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "wall.brush_received");
     }
 
     private void handleSave(Player player, String presetName) {
         WallCreationSession session = wallSessions.get(player.getUniqueId());
 
-        // デバッグ情報を追加
         if (session == null) {
-            player.sendMessage(ChatColor.RED + "セッションが見つかりません。まず塀ブラシを使用して座標を設定してください。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "wall.session_not_found");
             return;
         }
 
-        // 各座標の設定状況をチェック
-        String debugInfo = ChatColor.GRAY + "[デバッグ] ";
-        debugInfo += "始点:" + (session.getPos1() != null ? "設定済み" : "未設定") + " ";
-        debugInfo += "終点:" + (session.getPos2() != null ? "設定済み" : "未設定") + " ";
-        debugInfo += "軸始点:" + (session.getAxisStart() != null ? "設定済み" : "未設定") + " ";
-        debugInfo += "軸終点:" + (session.getAxisEnd() != null ? "設定済み" : "未設定");
-        player.sendMessage(debugInfo);
-
         if (session.getPos1() == null || session.getPos2() == null ||
             session.getAxisStart() == null || session.getAxisEnd() == null) {
-            player.sendMessage(ChatColor.RED + "塀プリセットを保存するには、すべての座標を設定してください (3D領域の始点、終点、中心軸の始点、中心軸の終点)。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "wall.coordinates_incomplete");
             return;
         }
 
         if (!session.getPos1().getWorld().equals(session.getPos2().getWorld()) ||
             !session.getPos1().getWorld().equals(session.getAxisStart().getWorld()) ||
             !session.getPos1().getWorld().equals(session.getAxisEnd().getWorld())) {
-            player.sendMessage(ChatColor.RED + "すべての選択座標は同じワールド内にある必要があります。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "preset.different_worlds");
             return;
         }
 
@@ -189,14 +177,14 @@ public class WallPresetCommand implements CommandExecutor, TabCompleter {
 
         List<Location> rawAxisPath = getLineBetween(axisStart, axisEnd);
         if (rawAxisPath.isEmpty()) {
-            player.sendMessage(ChatColor.RED + "中心軸のパスを生成できませんでした。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "preset.path_generation_failed");
             return;
         }
 
         Vector presetForward = axisEnd.toVector().subtract(axisStart.toVector());
         presetForward.setY(0);
         if (presetForward.lengthSquared() < 1e-6) {
-            presetForward = new Vector(0, 0, 1); // 軸が垂直な場合のフォールバック
+            presetForward = new Vector(0, 0, 1); // Fallback for vertical axis
         }
         presetForward.normalize();
 
@@ -298,7 +286,7 @@ public class WallPresetCommand implements CommandExecutor, TabCompleter {
         WallPreset wallPreset = new WallPreset(presetName, slices, lengthX, widthZ, heightY, axisXOffset, axisZOffset, axisYOffset);
         wallPresetManager.savePreset(wallPreset);
 
-        player.sendMessage(ChatColor.GREEN + "塀プリセット '" + presetName + "' を3D座標系で保存しました。");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "wall.preset_saved", presetName);
         wallSessions.remove(player.getUniqueId());
     }
 
@@ -306,17 +294,15 @@ public class WallPresetCommand implements CommandExecutor, TabCompleter {
         WallPreset preset = wallPresetManager.loadPreset(presetName);
 
         if (preset == null) {
-            player.sendMessage(ChatColor.RED + "塀プリセット '" + presetName + "' が見つかりませんでした。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "wall.preset_not_found", presetName);
             return;
         }
 
         Location pasteLocation = player.getLocation().getBlock().getLocation();
-        player.sendMessage(ChatColor.GREEN + "塀プリセット '" + presetName + "' を貼り付け中...");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "wall.preset_pasting", presetName);
 
-        // Get player's facing direction
         float yaw = player.getLocation().getYaw();
 
-        // Calculate right vector (perpendicular to facing direction)
         double rightX = Math.cos(Math.toRadians(yaw + 90f));
         double rightZ = Math.sin(Math.toRadians(yaw + 90f));
         Vector rightVector = new Vector(rightX, 0, rightZ).normalize();
@@ -326,7 +312,6 @@ public class WallPresetCommand implements CommandExecutor, TabCompleter {
 
         int blocksPlaced = 0;
 
-        // Calculate forward vector for 3D placement
         double forwardX = Math.cos(Math.toRadians(yaw));
         double forwardZ = Math.sin(Math.toRadians(yaw));
         Vector forwardVector = new Vector(forwardX, 0, forwardZ).normalize();
@@ -339,10 +324,8 @@ public class WallPresetCommand implements CommandExecutor, TabCompleter {
                     BlockData blockData = slice.getBlockRelativeToAxis(z, y, preset.getAxisZOffset(), preset.getAxisYOffset());
 
                     if (blockData != null) {
-                        // Calculate relative X position from axis
                         int relativeX = sliceX - preset.getAxisXOffset();
 
-                        // Place block in 3D space with correct X positioning
                         Location worldLocation = pasteLocation.clone()
                             .add(forwardVector.clone().multiply(relativeX))
                             .add(upVector.clone().multiply(y))
@@ -358,50 +341,54 @@ public class WallPresetCommand implements CommandExecutor, TabCompleter {
             }
         }
 
-        player.sendMessage(ChatColor.GREEN + "塀プリセット '" + presetName + "' の貼り付けが完了しました。(" + blocksPlaced + "ブロック配置)");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "wall.preset_paste_complete", presetName, blocksPlaced);
     }
 
     private void handleBuild(Player player, String presetName, double xOffset, double yOffset, boolean onlyAir, boolean updateBlockData) {
         UUID playerUUID = player.getUniqueId();
         RouteSession routeSession = plugin.getRouteSession(playerUUID);
+        List<RouteEdge> edges = routeSession.getEdges();
 
-        if (routeSession.getCalculatedPath() == null || routeSession.getCalculatedPath().isEmpty()) {
-            player.sendMessage(ChatColor.RED + "先に経路を設定してください。(/redit brush で経路を設定)");
+        if (edges.isEmpty()) {
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "road.route_not_set");
             return;
         }
 
         WallPreset wallPreset = wallPresetManager.loadPreset(presetName);
         if (wallPreset == null) {
-            player.sendMessage(ChatColor.RED + "塀プリセット '" + presetName + "' が見つかりませんでした。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "wall.preset_not_found", presetName);
             return;
         }
 
-        String modeMessage = onlyAir ? " (空気ブロックのみ設置モード)" : "";
-        String updateMessage = updateBlockData ? "" : " (ブロック更新なし)";
-        String xOffsetText = xOffset > 0 ? "右側" : (xOffset < 0 ? "左側" : "中央");
+        String modeMessage = onlyAir ? plugin.getMessageManager().getMessage("wall.build_mode_air") : "";
+        String updateMessage = updateBlockData ? "" : plugin.getMessageManager().getMessage("wall.build_mode_no_update");
+        String xOffsetText = xOffset > 0 ? plugin.getMessageManager().getMessage("wall.build_offset_right") : (xOffset < 0 ? plugin.getMessageManager().getMessage("wall.build_offset_left") : plugin.getMessageManager().getMessage("wall.build_offset_center"));
         String yOffsetText = yOffset != 0 ? ", Y=" + yOffset : "";
-        player.sendMessage(ChatColor.GREEN + "塀建築計算を開始します... (プリセット: " + presetName +
-                          ", X=" + xOffset + " " + xOffsetText + yOffsetText + ")" + modeMessage + updateMessage);
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "wall.building_started_details", presetName, xOffset, xOffsetText, yOffsetText, modeMessage, updateMessage);
 
-        new WallCalculationTask(plugin, playerUUID, routeSession, wallPreset, xOffset, yOffset, onlyAir, updateBlockData).runTaskAsynchronously(plugin);
-    }
+        UUID buildId = UUID.randomUUID();
+        WallCalculationTask.BuildManager.startBuildSession(buildId, edges.size());
 
-    // 既存のhandleBuildメソッドとの互換性を保持
-    private void handleBuild(Player player, String presetName, double offset, boolean onlyAir) {
-        handleBuild(player, presetName, offset, 0.0, onlyAir, true); // デフォルトでY=0, ブロック更新有効
-    }
+        for (RouteEdge edge : edges) {
+            RouteSession singleEdgeSession = new RouteSession();
+            if (edge.getCalculatedPath() != null && !edge.getCalculatedPath().isEmpty()) {
+                singleEdgeSession.setCalculatedPath(edge.getCalculatedPath());
+            } else {
+                plugin.getLogger().warning("Skipping edge for wall construction as its path is not calculated: " + edge.toString());
+                continue;
+            }
 
-    // updateBlockDataパラメータ付きの互換性メソッド
-    private void handleBuild(Player player, String presetName, double offset, boolean onlyAir, boolean updateBlockData) {
-        handleBuild(player, presetName, offset, 0.0, onlyAir, updateBlockData); // デフォルトでY=0
+            UUID edgeId = UUID.randomUUID();
+            new WallCalculationTask(plugin, playerUUID, singleEdgeSession, wallPreset, xOffset, yOffset, onlyAir, updateBlockData, buildId, edgeId).runTaskAsynchronously(plugin);
+        }
     }
 
     private void sendHelp(Player player) {
-        player.sendMessage(ChatColor.AQUA + "--- 塀コマンド ---");
-        player.sendMessage(ChatColor.YELLOW + "/rwall brush" + ChatColor.WHITE + " - 塀プリセット作成用のブラシを取得します。");
-        player.sendMessage(ChatColor.YELLOW + "/rwall save <名前>" + ChatColor.WHITE + " - 選択範囲を塀プリセットとして保存します。");
-        player.sendMessage(ChatColor.YELLOW + "/rwall paste <名前>" + ChatColor.WHITE + " - 足元に塀プリセットを直接設置します。");
-        player.sendMessage(ChatColor.YELLOW + "/rwall build <プリセット名> <xオフセット> [yオフセット] [-onlyair] [--noupdateblockdata]" + ChatColor.WHITE + " - 道路経路に沿って3D塀を建設します。正の値で右側、負の値で左側。yオフセットで高さ調整可能。");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "wall.help_title");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "wall.help_brush");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "wall.help_save");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "wall.help_paste");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "wall.help_build_long");
     }
 
     private Location getMinLocation(Location loc1, Location loc2) {

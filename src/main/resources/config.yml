@@ -1,0 +1,18 @@
+# AutoRoadGeneratorPlugin Configuration
+
+# Language settings
+# Supported languages: ja (Japanese), en (English)
+language: ja
+
+# Plugin settings
+debug: false
+
+# Default preset settings
+presets:
+  auto_save: true
+  backup_on_save: true
+
+# Performance settings
+performance:
+  max_blocks_per_tick: 1000
+  async_building: true

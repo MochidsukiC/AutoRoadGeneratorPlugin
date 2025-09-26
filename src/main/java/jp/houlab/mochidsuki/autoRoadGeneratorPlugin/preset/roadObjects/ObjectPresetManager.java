@@ -23,7 +23,9 @@ public class ObjectPresetManager {
 
     public ObjectPresetManager(AutoRoadGeneratorPluginMain plugin) {
         this.plugin = plugin;
-        this.objectPresetsFolder = new File(plugin.getDataFolder(), "presets/objects");
+        // preset/obj/フォルダに変更
+        File presetFolder = new File(plugin.getDataFolder(), "preset");
+        this.objectPresetsFolder = new File(presetFolder, "obj");
         if (!objectPresetsFolder.exists()) {
             objectPresetsFolder.mkdirs();
         }

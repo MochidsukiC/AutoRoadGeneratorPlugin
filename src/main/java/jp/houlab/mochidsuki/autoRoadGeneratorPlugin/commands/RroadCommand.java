@@ -1,11 +1,14 @@
 package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands;
 
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.*;
-import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.*;
-import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.*;
-import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build.*;
-import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.*;
-import org.bukkit.ChatColor;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build.BuildCalculationTask;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.PresetCreationSession;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.PresetManager;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.RoadPreset;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteEdge;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteSession;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.BlockRotationUtil;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.PlayerMessageUtil;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
@@ -21,7 +24,6 @@ import org.bukkit.util.StringUtil;
 import org.bukkit.util.Vector;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 public class RroadCommand implements CommandExecutor, TabCompleter {
     private final AutoRoadGeneratorPluginMain plugin;
@@ -37,7 +39,7 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player)) {
-            sender.sendMessage("このコマンドはプレイヤーのみが実行できます。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, sender, "command.player_only");
             return true;
         }
 
@@ -56,21 +58,21 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
                 break;
             case "save":
                 if (args.length < 2) {
-                    player.sendMessage(ChatColor.RED + "使用法: /rroad save <名前>");
+                    PlayerMessageUtil.sendTranslatedMessage(plugin, player, "road.usage_save");
                     return true;
                 }
                 handleSave(player, args[1]);
                 break;
             case "paste":
                 if (args.length < 2) {
-                    player.sendMessage(ChatColor.RED + "使用法: /rroad paste <名前>");
+                    PlayerMessageUtil.sendTranslatedMessage(plugin, player, "road.usage_paste");
                     return true;
                 }
                 handlePaste(player, args[1]);
                 break;
             case "build":
                 if (args.length < 2) {
-                    player.sendMessage(ChatColor.RED + "使用法: /rroad build <プリセット名> [-onlyair] [--noupdateblockdata]");
+                    PlayerMessageUtil.sendTranslatedMessage(plugin, player, "road.usage_build");
                     return true;
                 }
                 boolean onlyAir = false;
@@ -103,13 +105,14 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
             if (args[0].equalsIgnoreCase("build") || args[0].equalsIgnoreCase("paste")) {
                 return StringUtil.copyPartialMatches(args[1], presetManager.getPresetNames(), new ArrayList<>());
             }
-        } else if (args.length == 3) {
+        } else if (args.length > 2) {
             if (args[0].equalsIgnoreCase("build")) {
-                return StringUtil.copyPartialMatches(args[2], Arrays.asList("-onlyair", "--noupdateblockdata"), new ArrayList<>());
-            }
-        } else if (args.length == 4) {
-            if (args[0].equalsIgnoreCase("build")) {
-                return StringUtil.copyPartialMatches(args[3], Arrays.asList("-onlyair", "--noupdateblockdata"), new ArrayList<>());
+                List<String> options = new ArrayList<>(Arrays.asList("-onlyair", "--noupdateblockdata"));
+                // Prevent suggesting already used options
+                for (int i = 2; i < args.length; i++) {
+                    options.remove(args[i]);
+                }
+                return StringUtil.copyPartialMatches(args[args.length - 1], options, new ArrayList<>());
             }
         }
         return Collections.emptyList();
@@ -118,70 +121,78 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
     private void handleBuild(Player player, String presetName, boolean onlyAir, boolean updateBlockData) {
         UUID playerUUID = player.getUniqueId();
         RouteSession routeSession = plugin.getRouteSession(playerUUID);
-        if (routeSession.getCalculatedPath().isEmpty()) {
-            player.sendMessage(ChatColor.RED + "先に経路を設定してください。(/redit brush で経路を設定)");
+        List<RouteEdge> edges = routeSession.getEdges();
+
+        if (edges.isEmpty()) {
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "road.route_not_set");
             return;
         }
 
         RoadPreset roadPreset = presetManager.loadPreset(presetName);
         if (roadPreset == null) {
-            player.sendMessage(ChatColor.RED + "プリセット '" + presetName + "' が見つかりませんでした。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "road.preset_not_found", presetName);
             return;
         }
 
-        String modeMessage = onlyAir ? " (空気ブロックのみ設置モード)" : "";
-        String updateMessage = updateBlockData ? "" : " (ブロック更新なし)";
-        player.sendMessage(ChatColor.GREEN + "建築計画の計算を開始します... (プリセット: " + presetName + ")" + modeMessage + updateMessage);
-        new BuildCalculationTask(plugin, playerUUID, routeSession, roadPreset, onlyAir, updateBlockData).runTaskAsynchronously(plugin);
+        String modeMessage = onlyAir ? " (Only Air Mode)" : "";
+        String updateMessage = updateBlockData ? "" : " (No Block Update)";
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "road.building_started_details", presetName, edges.size(), modeMessage, updateMessage);
+
+
+        UUID buildId = UUID.randomUUID();
+        BuildCalculationTask.BuildManager.startBuildSession(buildId, edges.size());
+
+        for (RouteEdge edge : edges) {
+            // Create a temporary session for each edge to pass its specific path
+            RouteSession singleEdgeSession = new RouteSession();
+            if (edge.getCalculatedPath() != null && !edge.getCalculatedPath().isEmpty()) {
+                singleEdgeSession.setCalculatedPath(edge.getCalculatedPath());
+            } else {
+                // It's possible an edge exists but its path hasn't been calculated yet.
+                // Though the listener should handle this, we can add a fallback or skip.
+                plugin.getLogger().warning("Skipping edge " + edge.toString() + " as its path is not calculated.");
+                continue; // Or calculate it here if needed
+            }
+
+            UUID edgeId = UUID.randomUUID();
+            new BuildCalculationTask(plugin, playerUUID, singleEdgeSession, roadPreset, onlyAir, updateBlockData, buildId, edgeId).runTaskAsynchronously(plugin);
+        }
     }
 
-    // 既存のhandleBuildメソッドとの互換性を保持
-    private void handleBuild(Player player, String presetName, boolean onlyAir) {
-        handleBuild(player, presetName, onlyAir, true); // デフォルトでブロック更新有効
-    }
 
     private void handleBrush(Player player) {
         ItemStack presetBrush = new ItemStack(Material.GOLDEN_AXE);
         ItemMeta presetMeta = presetBrush.getItemMeta();
         if (presetMeta != null) {
-            presetMeta.setDisplayName(ChatColor.GOLD + "プリセットブラシ");
+            presetMeta.setDisplayName(plugin.getMessageManager().getMessage("road.brush_name"));
             presetMeta.setLore(Arrays.asList(
-                    ChatColor.YELLOW + "左クリック: 始点を設定",
-                    ChatColor.YELLOW + "右クリック: 終点を設定",
-                    ChatColor.YELLOW + "Shift + クリック: 中心軸の始点/終点を設定"
+                    plugin.getMessageManager().getMessage("road.brush_lore1"),
+                    plugin.getMessageManager().getMessage("road.brush_lore2"),
+                    plugin.getMessageManager().getMessage("road.brush_lore3")
             ));
             presetBrush.setItemMeta(presetMeta);
         }
         player.getInventory().addItem(presetBrush);
-        player.sendMessage(ChatColor.GREEN + "プリセット作成用のブラシを入手しました。");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "road.brush_received");
     }
 
     private void handleSave(Player player, String presetName) {
         PresetCreationSession session = playerSessions.get(player.getUniqueId());
 
-        // デバッグ情報を追加
         if (session == null) {
-            player.sendMessage(ChatColor.RED + "セッションが見つかりません。まず道路ブラシを使用して座標を設定してください。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "preset.session_not_found");
             return;
         }
 
-        // 各座標の設定状況をチェック
-        String debugInfo = ChatColor.GRAY + "[デバッグ] ";
-        debugInfo += "始点:" + (session.getPos1() != null ? "設定済み" : "未設定") + " ";
-        debugInfo += "終点:" + (session.getPos2() != null ? "設定済み" : "未設定") + " ";
-        debugInfo += "軸始点:" + (session.getAxisStart() != null ? "設定済み" : "未設定") + " ";
-        debugInfo += "軸終点:" + (session.getAxisEnd() != null ? "設定済み" : "未設定");
-        player.sendMessage(debugInfo);
-
         if (session.getPos1() == null || session.getPos2() == null || session.getAxisStart() == null || session.getAxisEnd() == null) {
-            player.sendMessage(ChatColor.RED + "プリセットを保存するには、すべての座標を設定してください (始点、終点、中心軸の始点、中心軸の終点)。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "preset.coordinates_incomplete");
             return;
         }
 
         if (!session.getPos1().getWorld().equals(session.getPos2().getWorld()) ||
             !session.getPos1().getWorld().equals(session.getAxisStart().getWorld()) ||
             !session.getPos1().getWorld().equals(session.getAxisEnd().getWorld())) {
-            player.sendMessage(ChatColor.RED + "すべての選択座標は同じワールド内にある必要があります。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "preset.different_worlds");
             return;
         }
 
@@ -192,14 +203,14 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
         
         List<Location> rawAxisPath = getLineBetween(axisStart, axisEnd);
         if (rawAxisPath.isEmpty()) {
-            player.sendMessage(ChatColor.RED + "中心軸のパスを生成できませんでした。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "preset.path_generation_failed");
             return;
         }
 
         Vector presetForward = axisEnd.toVector().subtract(axisStart.toVector());
         presetForward.setY(0);
         if (presetForward.lengthSquared() < 1e-6) {
-            presetForward = new Vector(0, 0, 1); // 軸が垂直な場合のフォールバック
+            presetForward = new Vector(0, 0, 1); // Fallback for vertical axis
         }
         presetForward.normalize();
 
@@ -290,7 +301,7 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
                     if (arrayZ >= 0 && arrayZ < widthZ && arrayY >= 0 && arrayY < heightY) {
                         BlockData blockData = blocks.get(pos);
                         slice.setBlock(arrayZ, arrayY, blockData);
-                        slice.setBlockString(arrayZ, arrayY, blockData.getAsString());  // 重要: Stringも保存
+                        slice.setBlockString(arrayZ, arrayY, blockData.getAsString());  // Important: Save String as well
                     }
                 }
             }
@@ -301,7 +312,7 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
         RoadPreset roadPreset = new RoadPreset(presetName, slices, lengthX, widthZ, heightY, axisZOffset, axisYOffset);
         presetManager.savePreset(roadPreset);
         
-        player.sendMessage(ChatColor.GREEN + "プリセット '" + presetName + "' を新しい座標系で保存しました。");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "road.preset_saved_new_coord", presetName);
         playerSessions.remove(player.getUniqueId());
     }
 
@@ -309,13 +320,13 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
         RoadPreset preset = presetManager.loadPreset(presetName);
 
         if (preset == null) {
-            player.sendMessage(ChatColor.RED + "プリセット '" + presetName + "' が見つかりませんでした。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "road.preset_not_found", presetName);
             return;
         }
 
         Location pasteReferencePoint = player.getLocation().getBlock().getLocation();
 
-        player.sendMessage(ChatColor.GREEN + "プリセット '" + presetName + "' を貼り付け中... (基準点: " + formatLocation(pasteReferencePoint) + ")");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "road.preset_pasting_with_ref", presetName, formatLocation(pasteReferencePoint));
 
         Location axisPoint = pasteReferencePoint;
 
@@ -358,15 +369,15 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
             }
         }
 
-        player.sendMessage(ChatColor.GREEN + "プリセット '" + presetName + "' の貼り付けが完了しました。(" + blocksPlaced + "ブロック配置)");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "road.preset_paste_complete", presetName, blocksPlaced);
     }
 
     private void sendHelp(Player player) {
-        player.sendMessage(ChatColor.AQUA + "--- 道路コマンド ---");
-        player.sendMessage(ChatColor.YELLOW + "/rroad brush" + ChatColor.WHITE + " - 道路プリセット作成用のブラシを取得します。");
-        player.sendMessage(ChatColor.YELLOW + "/rroad save <名前>" + ChatColor.WHITE + " - 選択範囲を道路プリセットとして保存します。");
-        player.sendMessage(ChatColor.YELLOW + "/rroad build <プリセット名> [-onlyair] [--noupdateblockdata]" + ChatColor.WHITE + " - 経路に沿ってプリセットから道路を建設します。-onlyairオプションで空気ブロックのみに設置。--noupdateblockdataでブロック更新を無効化。");
-        player.sendMessage(ChatColor.YELLOW + "/rroad paste <プリセット名>" + ChatColor.WHITE + " - 足元に道路プリセットを直接設置します。");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "road.help_title");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "road.help_brush");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "road.help_save");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "road.help_build_long");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "road.help_paste");
     }
     
     private List<Location> getLineBetween(Location start, Location end) {

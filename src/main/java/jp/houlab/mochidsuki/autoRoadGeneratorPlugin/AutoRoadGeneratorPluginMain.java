@@ -1,10 +1,12 @@
 package jp.houlab.mochidsuki.autoRoadGeneratorPlugin;
 
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands.LanguageCommand;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands.ReditCommand;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands.RobjCommand;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands.RroadCommand;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands.RundoCommand;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands.WallPresetCommand;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.i18n.MessageManager;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.roadObjects.ObjectBrushListener;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.roadObjects.ObjectCreationSession;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.roadObjects.ObjectPresetManager;
@@ -44,9 +46,16 @@ public class AutoRoadGeneratorPluginMain extends JavaPlugin {
     private PresetManager presetManager;
     private ObjectPresetManager objectPresetManager;
     private WallPresetManager wallPresetManager;
+    private MessageManager messageManager;
 
     @Override
     public void onEnable() {
+        // 設定ファイルの初期化
+        saveDefaultConfig();
+
+        // MessageManagerの初期化
+        this.messageManager = new MessageManager(this);
+
         this.calculator = new RouteCalculator();
         this.visualizer = new RouteVisualizer(this);
         this.routeEditListener = new RouteEditListener(this, calculator, visualizer);
@@ -73,6 +82,10 @@ public class AutoRoadGeneratorPluginMain extends JavaPlugin {
 
         getCommand("rundo").setExecutor(new RundoCommand(this));
 
+        LanguageCommand langCommand = new LanguageCommand(this);
+        getCommand("lang").setExecutor(langCommand);
+        getCommand("lang").setTabCompleter(langCommand);
+
         getServer().getPluginManager().registerEvents(routeEditListener, this);
         getServer().getPluginManager().registerEvents(new PresetListener(playerSessions), this);
         getServer().getPluginManager().registerEvents(new ObjectBrushListener(this, objectCreationSessions), this);
@@ -80,7 +93,7 @@ public class AutoRoadGeneratorPluginMain extends JavaPlugin {
 
         this.routeEditTask = routeEditListener.runTaskTimerAsynchronously(this, 0L, 5L);
 
-        getLogger().info("RoadEditor plugin has been enabled.");
+        getLogger().info(messageManager.getMessage("plugin.enabled"));
     }
 
     @Override
@@ -96,7 +109,7 @@ public class AutoRoadGeneratorPluginMain extends JavaPlugin {
         }
         routeSessions.clear();
         editModePlayers.clear();
-        getLogger().info("RoadEditor plugin has been disabled.");
+        getLogger().info(messageManager.getMessage("plugin.disabled"));
     }
 
     public RouteSession getRouteSession(UUID uuid) {
@@ -117,5 +130,13 @@ public class AutoRoadGeneratorPluginMain extends JavaPlugin {
      */
     public RouteEditListener getRouteEditListener() {
         return routeEditListener;
+    }
+
+    /**
+     * MessageManagerのインスタンスを取得します。
+     * @return MessageManagerのインスタンス
+     */
+    public MessageManager getMessageManager() {
+        return messageManager;
     }
 }

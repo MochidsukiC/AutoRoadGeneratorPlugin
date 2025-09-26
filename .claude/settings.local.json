@@ -14,7 +14,8 @@
       "Bash(rm:*)",
       "Read(//c/Users/dora2/Documents/Minecraft/minecraft server/paper-1.20.1/plugins/RoadEditor/presets/**)",
       "Bash(git checkout:*)",
-      "Read(//c/Users/dora2/Documents/Minecraft/minecraft server/paper-1.20.1/plugins/AutoRoadGeneratorPlugin/debug/**)"
+      "Read(//c/Users/dora2/Documents/Minecraft/minecraft server/paper-1.20.1/plugins/AutoRoadGeneratorPlugin/debug/**)",
+      "Read(//c/Users/dora2/Documents/Minecraft/minecraft server/paper-1.20.1/logs/**)"
     ],
     "deny": [],
     "ask": []

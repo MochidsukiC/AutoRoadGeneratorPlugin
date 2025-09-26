@@ -2,33 +2,46 @@ package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * String版のブロック回転ユーティリティ（完全にスレッドセーフ）
  */
 public class StringBlockRotationUtil {
 
-    // 方向の回転マッピング（90度時計回り）
+    // 90度時計回りの回転マッピング
     private static final Map<String, String> FACING_ROTATION = new HashMap<>();
     private static final Map<String, String> AXIS_ROTATION = new HashMap<>();
+    private static final Map<String, String> RAIL_SHAPE_ROTATION = new HashMap<>();
 
     static {
-        // facing回転マッピング
+        // facingプロパティの回転
         FACING_ROTATION.put("north", "east");
         FACING_ROTATION.put("east", "south");
         FACING_ROTATION.put("south", "west");
         FACING_ROTATION.put("west", "north");
-        FACING_ROTATION.put("up", "up");
-        FACING_ROTATION.put("down", "down");
 
-        // axis回転マッピング
+        // axisプロパティの回転
         AXIS_ROTATION.put("x", "z");
         AXIS_ROTATION.put("z", "x");
-        AXIS_ROTATION.put("y", "y");
+        // y-axis is unchanged by yaw rotation
+
+        // shapeプロパティ（レール）の回転
+        RAIL_SHAPE_ROTATION.put("north_south", "east_west");
+        RAIL_SHAPE_ROTATION.put("east_west", "north_south");
+        RAIL_SHAPE_ROTATION.put("ascending_north", "ascending_east");
+        RAIL_SHAPE_ROTATION.put("ascending_east", "ascending_south");
+        RAIL_SHAPE_ROTATION.put("ascending_south", "ascending_west");
+        RAIL_SHAPE_ROTATION.put("ascending_west", "ascending_north");
+        RAIL_SHAPE_ROTATION.put("north_east", "south_east");
+        RAIL_SHAPE_ROTATION.put("south_east", "south_west");
+        RAIL_SHAPE_ROTATION.put("south_west", "north_west");
+        RAIL_SHAPE_ROTATION.put("north_west", "north_east");
     }
 
     /**
-     * BlockDataStringを指定された角度で回転
+     * BlockDataStringを指定された角度で回転させます。
      * @param blockDataString 元のBlockData文字列
      * @param rotationAngle 回転角度（ラジアン）
      * @return 回転後のBlockData文字列
@@ -38,151 +51,132 @@ public class StringBlockRotationUtil {
             return blockDataString;
         }
 
-        // 角度を90度単位に変換
+        // 角度を90度単位の回転回数に変換
         int quarterTurns = getQuarterTurns(rotationAngle);
-        double degrees = Math.toDegrees(rotationAngle);
-
-        // デバッグ: 詳細な回転情報（必要時のみ）
-        boolean hasRotatableProperties = (blockDataString.contains("facing=") || blockDataString.contains("axis=") ||
-                                        blockDataString.contains("north=") || blockDataString.contains("stairs"));
-        if (quarterTurns > 0 && hasRotatableProperties) {
-            // デバッグログは最小限に（エラー時以外は出力しない）
-            // System.out.println("[DEBUG] Rotating: " + blockDataString + " by " + degrees + "°");
-        }
 
         if (quarterTurns == 0) {
             return blockDataString;
         }
 
         String result = blockDataString;
-
-        // quarterTurns回だけ回転を適用
+        // quarterTurns回だけ90度回転を適用
         for (int i = 0; i < quarterTurns; i++) {
-            String beforeRotation = result;
             result = rotateSingleStep(result);
-            // デバッグログ（エラー検証時のみ有効化）
-            // if (i == 0 && !beforeRotation.equals(result)) {
-            //     System.out.println("[DEBUG] Step " + (i+1) + ": " + beforeRotation + " -> " + result);
-            // }
         }
 
         return result;
     }
 
     /**
-     * 一回の90度回転を適用
+     * 1ステップ（90度）の回転を適用します。
+     * @param blockDataString 入力BlockData文字列
+     * @return 90度回転後のBlockData文字列
      */
     private static String rotateSingleStep(String blockDataString) {
         String result = blockDataString;
 
-        // facingプロパティを回転
-        result = rotateProperty(result, "facing");
-
-        // axisプロパティを回転
-        result = rotateAxisProperty(result, "axis");
-
-        // 複数の方向プロパティがあるブロック（フェンスなど）
-        result = rotateMultipleFacing(result);
+        // 各プロパティを順番に回転
+        result = rotateFacingProperty(result);
+        result = rotateAxisProperty(result);
+        result = rotateRailShapeProperty(result);
+        result = rotateMultipleFacingProperties(result); // For walls/fences
 
         return result;
     }
 
     /**
-     * 複数方向フェンスなどの回転処理
+     * "facing"プロパティを90度回転させます。
      */
-    private static String rotateMultipleFacing(String blockDataString) {
-        String result = blockDataString;
+    private static String rotateFacingProperty(String blockDataString) {
+        return rotateGenericProperty(blockDataString, "facing", FACING_ROTATION);
+    }
 
-        // north/south/east/westの個別プロパティを回転
-        if (result.contains("north=") || result.contains("south=") ||
-            result.contains("east=") || result.contains("west=")) {
+    /**
+     * "axis"プロパティを90度回転させます。
+     */
+    private static String rotateAxisProperty(String blockDataString) {
+        return rotateGenericProperty(blockDataString, "axis", AXIS_ROTATION);
+    }
 
-            // 各方向の値を保存
-            String northValue = extractPropertyValue(result, "north");
-            String eastValue = extractPropertyValue(result, "east");
-            String southValue = extractPropertyValue(result, "south");
-            String westValue = extractPropertyValue(result, "west");
+    /**
+     * "shape"プロパティ（レール）を90度回転させます。
+     */
+    private static String rotateRailShapeProperty(String blockDataString) {
+        return rotateGenericProperty(blockDataString, "shape", RAIL_SHAPE_ROTATION);
+    }
 
-            // 90度時計回り回転: north->east, east->south, south->west, west->north
-            // 同時に全て置換（順序に依存しない）
-            String tempResult = result;
-            if (northValue != null) tempResult = tempResult.replaceAll("north=[^,\\]]*", "TEMP_EAST=" + northValue);
-            if (eastValue != null) tempResult = tempResult.replaceAll("east=[^,\\]]*", "TEMP_SOUTH=" + eastValue);
-            if (southValue != null) tempResult = tempResult.replaceAll("south=[^,\\]]*", "TEMP_WEST=" + southValue);
-            if (westValue != null) tempResult = tempResult.replaceAll("west=[^,\\]]*", "TEMP_NORTH=" + westValue);
+    /**
+     * 汎用的なプロパティ回転メソッド。
+     */
+    private static String rotateGenericProperty(String blockDataString, String propertyName, Map<String, String> rotationMap) {
+        String value = extractPropertyValue(blockDataString, propertyName);
+        if (value != null) {
+            String newValue = rotationMap.get(value);
+            if (newValue != null) {
+                return blockDataString.replace(propertyName + "=" + value, propertyName + "=" + newValue);
+            }
+        }
+        return blockDataString;
+    }
 
-            // TEMPプレフィックスを削除
-            result = tempResult
-                    .replace("TEMP_NORTH=", "north=")
-                    .replace("TEMP_EAST=", "east=")
-                    .replace("TEMP_SOUTH=", "south=")
-                    .replace("TEMP_WEST=", "west=");
+    /**
+     * 壁やフェンスなどの複数の方向プロパティ（north, east, south, west）を90度回転させます。
+     */
+    private static String rotateMultipleFacingProperties(String blockDataString) {
+        if (!blockDataString.contains("north=") && !blockDataString.contains("east=") &&
+            !blockDataString.contains("south=") && !blockDataString.contains("west=")) {
+            return blockDataString;
         }
 
-        return result;
+        // 現在の各方向の値を取得
+        String northValue = extractPropertyValue(blockDataString, "north");
+        String eastValue = extractPropertyValue(blockDataString, "east");
+        String southValue = extractPropertyValue(blockDataString, "south");
+        String westValue = extractPropertyValue(blockDataString, "west");
+
+        // 一時的なプレフィックスを使用して、置換の連鎖を防ぐ
+        String tempResult = blockDataString;
+        if (northValue != null) tempResult = tempResult.replaceAll("north=[^,\\]]*", "TEMP_EAST=" + northValue);
+        if (eastValue != null) tempResult = tempResult.replaceAll("east=[^,\\]]*", "TEMP_SOUTH=" + eastValue);
+        if (southValue != null) tempResult = tempResult.replaceAll("south=[^,\\]]*", "TEMP_WEST=" + southValue);
+        if (westValue != null) tempResult = tempResult.replaceAll("west=[^,\\]]*", "TEMP_NORTH=" + westValue);
+
+        // 一時的なプレフィックスを元に戻す
+        return tempResult
+                .replace("TEMP_NORTH=", "north=")
+                .replace("TEMP_EAST=", "east=")
+                .replace("TEMP_SOUTH=", "south=")
+                .replace("TEMP_WEST=", "west=");
     }
 
     /**
-     * プロパティの値を抽出
+     * BlockData文字列から指定されたプロパティの値を抽出します。
      */
     private static String extractPropertyValue(String blockDataString, String property) {
-        String pattern = property + "=([^,\\]]*)";
-        java.util.regex.Pattern p = java.util.regex.Pattern.compile(pattern);
-        java.util.regex.Matcher m = p.matcher(blockDataString);
-        if (m.find()) {
-            return m.group(1);
+        // Regex to find "property=value" where value does not contain ',' or ']'
+        Matcher matcher = Pattern.compile(property + "=([^,\\]]*)").matcher(blockDataString);
+        if (matcher.find()) {
+            return matcher.group(1);
         }
         return null;
     }
 
     /**
-     * facingプロパティを回転
-     */
-    private static String rotateProperty(String blockDataString, String property) {
-        for (Map.Entry<String, String> entry : FACING_ROTATION.entrySet()) {
-            String oldValue = entry.getKey();
-            String newValue = entry.getValue();
-            String oldPattern = property + "=" + oldValue;
-            String newPattern = property + "=" + newValue;
-
-            if (blockDataString.contains(oldPattern)) {
-                return blockDataString.replace(oldPattern, newPattern);
-            }
-        }
-        return blockDataString;
-    }
-
-    /**
-     * axisプロパティを回転
-     */
-    private static String rotateAxisProperty(String blockDataString, String property) {
-        for (Map.Entry<String, String> entry : AXIS_ROTATION.entrySet()) {
-            String oldValue = entry.getKey();
-            String newValue = entry.getValue();
-            String oldPattern = property + "=" + oldValue;
-            String newPattern = property + "=" + newValue;
-
-            if (blockDataString.contains(oldPattern)) {
-                return blockDataString.replace(oldPattern, newPattern);
-            }
-        }
-        return blockDataString;
-    }
-
-    /**
-     * 角度から90度単位の回転回数を計算
+     * 角度（ラジアン）を90度単位の回転回数（0〜3）に変換します。
      */
     private static int getQuarterTurns(double rotationAngle) {
         double degrees = Math.toDegrees(rotationAngle);
-        degrees = ((degrees % 360) + 360) % 360; // 0-360度に正規化
+        // 角度を 0-360 の範囲に正規化
+        degrees = (degrees % 360 + 360) % 360;
 
+        // 最も近い90度の倍数に丸める
         if (degrees >= 315 || degrees < 45) {
             return 0; // 0度
         } else if (degrees >= 45 && degrees < 135) {
             return 1; // 90度
         } else if (degrees >= 135 && degrees < 225) {
             return 2; // 180度
-        } else {
+        } else { // 225 <= degrees < 315
             return 3; // 270度
         }
     }

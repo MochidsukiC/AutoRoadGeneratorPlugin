@@ -1,16 +1,15 @@
 package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands;
 
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.*;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.BlockRotationUtil;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build.BlockPlacementInfo;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build.BuildHistoryManager;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build.BuildPlacementTask;
-import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.roadObjects.ObjectBrushListener;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.roadObjects.ObjectCreationSession;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.roadObjects.ObjectPreset;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.roadObjects.ObjectPresetManager;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteSession;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.*;
-import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -43,7 +42,7 @@ public class RobjCommand implements CommandExecutor, TabCompleter {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player)) {
-            sender.sendMessage("このコマンドはプレイヤーのみが実行できます。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, sender, "command.player_only");
             return true;
         }
 
@@ -62,7 +61,7 @@ public class RobjCommand implements CommandExecutor, TabCompleter {
                 break;
             case "save":
                 if (args.length < 2) {
-                    player.sendMessage(ChatColor.RED + "使用法: /robj save <プリセット名>");
+                    PlayerMessageUtil.sendTranslatedMessage(plugin, player, "object.usage_save");
                     return true;
                 }
                 handleCreate(player, args[1]);
@@ -95,30 +94,30 @@ public class RobjCommand implements CommandExecutor, TabCompleter {
     }
 
     private void sendHelp(Player player) {
-        player.sendMessage(ChatColor.AQUA + "--- オブジェクトコマンド ---");
-        player.sendMessage(ChatColor.YELLOW + "/robj brush" + ChatColor.WHITE + " - オブジェクトプリセット作成用のブラシを取得します。");
-        player.sendMessage(ChatColor.YELLOW + "/robj save <名前>" + ChatColor.WHITE + " - 選択範囲をオブジェクトプリセットとして保存します。");
-        player.sendMessage(ChatColor.YELLOW + "/robj place <プリセット名> [オプション]" + ChatColor.WHITE + " - 経路に沿ってオブジェクトを設置します。");
-        player.sendMessage(ChatColor.GRAY + "設置オプション: --interval <m>, --offset <x,y,z>, --rotate <deg>, --flip <x|z>");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "object.help_title");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "object.help_brush");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "object.help_save");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "object.help_place_long");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "object.help_place_options");
     }
 
     private void handleGetBrush(Player player) {
         ItemStack brush = new ItemStack(Material.IRON_AXE);
         ItemMeta meta = brush.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(ObjectBrushListener.BRUSH_NAME);
+            meta.setDisplayName(plugin.getMessageManager().getMessage("object.brush_name"));
             brush.setItemMeta(meta);
         }
         player.getInventory().addItem(brush);
-        player.sendMessage(ChatColor.GREEN + "オブジェクトプリセット用のブラシを入手しました。");
-        player.sendMessage(ChatColor.AQUA + "左クリックで始点/終点を、右クリックで原点を設定します。");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "object.brush_received");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "object.brush_usage");
     }
 
     private void handleCreate(Player player, String presetName) {
         ObjectCreationSession session = creationSessions.get(player.getUniqueId());
 
         if (session == null || !session.isReady()) {
-            player.sendMessage(ChatColor.RED + "先にブラシで始点、終点、原点を設定してください。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "object.brush_not_ready");
             return;
         }
 
@@ -154,7 +153,7 @@ public class RobjCommand implements CommandExecutor, TabCompleter {
         }
 
         if (blocks.isEmpty()) {
-            player.sendMessage(ChatColor.RED + "選択範囲が空です。プリセットは作成されませんでした。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "object.selection_empty");
             return;
         }
 
@@ -163,13 +162,13 @@ public class RobjCommand implements CommandExecutor, TabCompleter {
         ObjectPreset preset = new ObjectPreset(presetName, blocks, 0, dimensions);
         objectPresetManager.savePreset(preset);
 
-        player.sendMessage(ChatColor.GREEN + "オブジェクトプリセット '" + presetName + "' を作成しました。");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "object.preset_saved", presetName);
         creationSessions.remove(player.getUniqueId());
     }
 
     private void handlePlace(Player player, String[] args) {
         if (args.length < 2) {
-            player.sendMessage(ChatColor.RED + "使用法: /robj place <プリセット名> [オプション]");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "object.usage_place");
             return;
         }
 
@@ -199,20 +198,20 @@ public class RobjCommand implements CommandExecutor, TabCompleter {
                 }
             }
         } catch (Exception e) {
-            player.sendMessage(ChatColor.RED + "引数が不正です。 /robj でヘルプを確認してください。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "object.invalid_arguments");
             return;
         }
 
         RouteSession routeSession = plugin.getRouteSession(player.getUniqueId());
         List<Location> path = routeSession.getCalculatedPath();
         if (path == null || path.isEmpty()) {
-            player.sendMessage(ChatColor.RED + "道路の経路が見つかりません。先に経路を計算してください。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "object.path_not_found");
             return;
         }
 
         ObjectPreset preset = objectPresetManager.loadPreset(presetName);
         if (preset == null) {
-            player.sendMessage(ChatColor.RED + "オブジェクトプリセット '" + presetName + "' が見つかりませんでした。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "object.preset_not_found", presetName);
             return;
         }
 
@@ -261,8 +260,8 @@ public class RobjCommand implements CommandExecutor, TabCompleter {
 
         BuildHistoryManager.addBuildHistory(player.getUniqueId(), originalBlocks);
         Queue<BlockPlacementInfo> placementQueue = new ConcurrentLinkedQueue<>(worldBlocks);
-        new BuildPlacementTask(plugin, player.getUniqueId(), placementQueue, false, true).runTaskTimer(plugin, 1, 1); // デフォルトでブロック更新有効
+        new BuildPlacementTask(plugin, player.getUniqueId(), placementQueue, false, true).runTaskTimer(plugin, 1, 1); // Default to block update enabled
 
-        player.sendMessage(ChatColor.GREEN + "経路に沿ってオブジェクトを設置しています...");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "object.placing_objects");
     }
 }

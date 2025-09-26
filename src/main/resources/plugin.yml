@@ -1,20 +1,31 @@
-name: RoadEditor
+name: AutoRoadGeneratorPlugin
 version: 1.0-SNAPSHOT
 main: jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain
 api-version: '1.20'
 commands:
   rroad:
+    aliases:
+      - rr
     description: Manages road presets and construction.
     usage: /rroad <brush|save <name>|build <preset_name>|paste <preset_name>>
   robj:
+    aliases:
+      - ro
     description: Manages object presets and placement.
     usage: /robj <brush|save <name>|place <preset_name> [options]>
   rwall:
+    aliases:
+      - rw
     description: Manages wall presets and construction along roads.
     usage: /rwall <brush|save <name>|paste <name>|build <preset_name> <offset> [-onlyair]>
   redit:
+    aliases:
+      - re
     description: Toggles road path editing mode or gets the road brush.
     usage: /redit [brush]
   rundo:
     description: Undoes the last road or object placement.
     usage: /rundo
+  lang:
+    description: Changes the plugin language.
+    usage: /lang [ja|en]

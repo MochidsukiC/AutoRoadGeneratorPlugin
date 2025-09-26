@@ -2,6 +2,7 @@ package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands;
 
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build.BuildHistoryManager;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.PlayerMessageUtil;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -19,7 +20,7 @@ public class RundoCommand implements CommandExecutor {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player)) {
-            sender.sendMessage("このコマンドはプレイヤーのみが実行できます。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, sender, "command.player_only");
             return true;
         }
 
@@ -27,9 +28,9 @@ public class RundoCommand implements CommandExecutor {
         boolean success = BuildHistoryManager.undoLastBuild(player.getUniqueId(), plugin);
 
         if (success) {
-            player.sendMessage(ChatColor.GREEN + "最後に行った設置を取り消しました。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "undo.success");
         } else {
-            player.sendMessage(ChatColor.RED + "取り消す操作がありません。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "undo.no_history");
         }
 
         return true;

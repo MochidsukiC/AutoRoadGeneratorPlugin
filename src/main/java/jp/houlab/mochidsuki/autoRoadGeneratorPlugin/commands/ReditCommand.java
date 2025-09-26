@@ -3,7 +3,7 @@ package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteSession;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteVisualizer;
-import org.bukkit.ChatColor;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.PlayerMessageUtil;
 import org.bukkit.Material;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -33,7 +33,7 @@ public class ReditCommand implements CommandExecutor, TabCompleter {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player)) {
-            sender.sendMessage("このコマンドはプレイヤーのみが実行できます。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, sender, "command.player_only");
             return true;
         }
 
@@ -65,11 +65,11 @@ public class ReditCommand implements CommandExecutor, TabCompleter {
             editModePlayers.remove(playerUUID);
             visualizer.hideAll(player, session);
             plugin.getServer().getScheduler().runTaskLater(plugin, session::clearSession, 1L);
-            player.sendMessage(ChatColor.YELLOW + "編集モードを終了しました。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "edit.mode_disabled");
         } else {
             editModePlayers.add(playerUUID);
             visualizer.showAll(player, session);
-            player.sendMessage(ChatColor.GREEN + "編集モードを開始しました。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "edit.mode_enabled");
         }
     }
 
@@ -78,12 +78,12 @@ public class ReditCommand implements CommandExecutor, TabCompleter {
         ItemMeta meta = brush.getItemMeta();
 
         if (meta != null) {
-            meta.setDisplayName(ChatColor.GOLD + "道路ブラシ (Road Brush)");
-            meta.setLore(Collections.singletonList(ChatColor.YELLOW + "クリックした地点をルートに追加します。 (Add a point to the route.)"));
+            meta.setDisplayName(plugin.getMessageManager().getMessage("edit.brush_name"));
+            meta.setLore(Collections.singletonList(plugin.getMessageManager().getMessage("edit.brush_usage")));
             brush.setItemMeta(meta);
         }
 
         player.getInventory().addItem(brush);
-        player.sendMessage(ChatColor.GREEN + "道路ブラシを入手しました。");
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "edit.brush_received");
     }
 }

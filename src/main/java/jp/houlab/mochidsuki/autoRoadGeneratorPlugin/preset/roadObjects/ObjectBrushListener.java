@@ -1,7 +1,7 @@
 package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.roadObjects;
 
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
-import org.bukkit.ChatColor;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.PlayerMessageUtil;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
@@ -20,7 +20,7 @@ public class ObjectBrushListener implements Listener {
     private final AutoRoadGeneratorPluginMain plugin;
     private final Map<UUID, ObjectCreationSession> creationSessions;
 
-    public static final String BRUSH_NAME = ChatColor.GOLD + "Object Preset Brush";
+    public static final String BRUSH_NAME_KEY = "object.brush_name";
 
     public ObjectBrushListener(AutoRoadGeneratorPluginMain plugin, Map<UUID, ObjectCreationSession> creationSessions) {
         this.plugin = plugin;
@@ -36,7 +36,7 @@ public class ObjectBrushListener implements Listener {
             return;
         }
         ItemMeta meta = item.getItemMeta();
-        if (meta == null || !meta.hasDisplayName() || !meta.getDisplayName().equals(BRUSH_NAME)) {
+        if (meta == null || !meta.hasDisplayName() || !meta.getDisplayName().equals(plugin.getMessageManager().getMessage(BRUSH_NAME_KEY))) {
             return;
         }
 
@@ -57,19 +57,19 @@ public class ObjectBrushListener implements Listener {
             if (session.getStartLocation() == null || session.getEndLocation() != null) {
                 session.setEndLocation(null); // Reset end location to set start point again
                 session.setStartLocation(clickedBlockLocation);
-                player.sendMessage(ChatColor.AQUA + "[1/3] Start point set.");
+                PlayerMessageUtil.sendTranslatedMessage(plugin, player, "object.start_point_set");
             } else {
                 session.setEndLocation(clickedBlockLocation);
-                player.sendMessage(ChatColor.AQUA + "[2/3] End point set.");
+                PlayerMessageUtil.sendTranslatedMessage(plugin, player, "object.end_point_set");
             }
         } else if (action == Action.RIGHT_CLICK_BLOCK) {
             // Use right click to set the origin point
             session.setOriginLocation(clickedBlockLocation);
-            player.sendMessage(ChatColor.AQUA + "[3/3] Origin point set.");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "object.origin_point_set");
         }
 
         if (session.isReady()) {
-            player.sendMessage(ChatColor.GREEN + "All points have been set! Use " + ChatColor.YELLOW + "/ro create <preset_name>" + ChatColor.GREEN + " to save the object preset.");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "object.all_points_set");
         }
     }
 }

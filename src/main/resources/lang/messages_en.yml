@@ -1,0 +1,149 @@
+# English Message File
+
+# Basic Messages
+command:
+  player_only: "This command can only be executed by players."
+  no_permission: "You don't have permission to execute this command."
+  invalid_usage: "Invalid usage."
+
+# Road Command Related
+road:
+  brush_received: "Road brush obtained."
+  edit_mode_enabled: "Edit mode started."
+  edit_mode_disabled: "Edit mode ended."
+  preset_saved: "Road preset '{0}' saved."
+  preset_saved_new_coord: "Preset '{0}' saved with the new coordinate system."
+  preset_not_found: "Road preset '{0}' not found."
+  preset_pasting: "Pasting road preset '{0}'..."
+  preset_pasting_with_ref: "Pasting preset '{0}'... (Reference point: {1})"
+  preset_paste_complete: "Road preset '{0}' paste completed. ({1} blocks placed)"
+  building_started: "Starting road construction calculation... (Preset: {0})"
+  building_started_details: "Starting build calculation... (Preset: {0}, {1} segments){2}{3}"
+  route_not_set: "Please set a route first. (Set route with /redit brush)"
+  target_block: "Please target a block."
+
+  usage_save: "Usage: /rroad save <name>"
+  usage_paste: "Usage: /rroad paste <name>"
+  usage_build: "Usage: /rroad build <preset_name> [-onlyair] [--noupdateblockdata]"
+
+  help_title: "--- Road Commands ---"
+  help_brush: "/rroad brush - Get a brush for creating road presets."
+  help_save: "/rroad save <name> - Save selection as a road preset."
+  help_paste: "/rroad paste <name> - Directly place road preset at your feet."
+  help_build_long: "/rroad build <preset_name> [-onlyair] [--noupdateblockdata] - Builds a road from the preset along the route. -onlyair option places only on air blocks. --noupdateblockdata disables block updates."
+
+  brush_name: "§6Road Preset Brush"
+  brush_lore1: "§eLeft click: Set start point"
+  brush_lore2: "§eRight click: Set end point"
+  brush_lore3: "§eShift + click: Set center axis start/end point"
+
+# Wall Command Related
+wall:
+  brush_received: "Wall preset creation brush obtained."
+  brush_name: "§7Wall Brush"
+  brush_lore1: "§eLeft click: Set 3D area start point"
+  brush_lore2: "§eRight click: Set 3D area end point"
+  brush_lore3: "§eShift + Left click: Set center axis start point"
+  brush_lore4: "§eShift + Right click: Set center axis end point"
+
+  session_not_found: "Session not found. Please use wall brush first to set coordinates."
+  coordinates_incomplete: "To save wall preset, all coordinates must be set (3D area start, end, center axis start, center axis end)."
+  preset_saved: "Wall preset '{0}' saved in 3D coordinate system."
+  preset_not_found: "Wall preset '{0}' not found."
+  preset_pasting: "Pasting wall preset '{0}'..."
+  preset_paste_complete: "Wall preset '{0}' paste completed. ({1} blocks placed)"
+  building_started: "Starting wall construction calculation... (Preset: {0}, Offset: X={1}, Y={2})"
+  building_started_details: "Starting wall construction... (Preset: {0}, X={1} {2}{3}){4}{5}"
+  build_mode_air: " (air-only mode)"
+  build_mode_no_update: " (no block update)"
+  build_offset_right: "right"
+  build_offset_left: "left"
+  build_offset_center: "center"
+
+  help_title: "--- Wall Commands ---"
+  help_brush: "/rwall brush - Get a brush for creating wall presets."
+  help_save: "/rwall save <name> - Save selection as a wall preset."
+  help_paste: "/rwall paste <name> - Directly place wall preset at your feet."
+  help_build_long: "/rwall build <preset_name> <x_offset> [y_offset] [-onlyair] [--noupdateblockdata] - Build a 3D wall along the road route. Positive value for right, negative for left. y_offset for height adjustment."
+
+  usage_save: "Usage: /rwall save <name>"
+  usage_paste: "Usage: /rwall paste <name>"
+  usage_build: "Usage: /rwall build <preset_name> <x_offset> [y_offset] [-onlyair] [--noupdateblockdata]"
+  offset_invalid: "Offset values must be numeric."
+
+# Object Command Related
+object:
+  brush_received: "Object preset creation brush obtained."
+  brush_usage: "§eLeft-click to set start/end points, right-click to set the origin."
+  brush_not_ready: "§cPlease set the start, end, and origin points with the brush first."
+  brush_name: "§6Object Preset Brush"
+
+  preset_saved: "Object preset '{0}' saved."
+  preset_not_found: "Object preset '{0}' not found."
+  selection_empty: "§cSelection is empty. Preset was not created."
+
+  placing_objects: "§aPlacing objects along the path..."
+  placement_complete: "Object placement completed. ({0} blocks placed)"
+
+  start_point_set: "§a[1/3] Start point set."
+  end_point_set: "§a[2/3] End point set."
+  origin_point_set: "§a[3/3] Origin point set."
+  all_points_set: "§aAll points have been set! Use §e/robj save <preset_name>§a to save the object preset."
+
+  path_not_found: "§cRoad path not found. Please calculate the path first."
+  invalid_arguments: "§cInvalid arguments. Check the help with /robj."
+
+  usage_save: "Usage: /robj save <preset_name>"
+  usage_place: "Usage: /robj place <preset_name> [options]"
+
+  help_title: "--- Object Commands ---"
+  help_brush: "/robj brush - Get a brush for creating object presets."
+  help_save: "/robj save <name> - Save selection as an object preset."
+  help_place_long: "/robj place <preset_name> [options] - Place objects along the route."
+  help_place_options: "§7Placement options: --interval <m>, --offset <x,y,z>, --rotate <deg>, --flip <x|z>"
+
+# Edit Command Related
+edit:
+  brush_received: "Road brush obtained."
+  mode_enabled: "Edit mode started."
+  mode_disabled: "Edit mode ended."
+  brush_name: "§6Road Brush"
+  brush_usage: "§eAdd a point to the route."
+
+# Undo Command Related
+undo:
+  success: "Last placement has been undone."
+  no_history: "No operations to undo."
+
+# Preset Operations Related
+preset:
+  start_point_set: "Start point set: ({0}, {1}, {2})"
+  end_point_set: "End point set: ({0}, {1}, {2})"
+  center_start_set: "Center axis start point set: ({0}, {1}, {2})"
+  center_end_set: "Center axis end point set: ({0}, {1}, {2})"
+  saved_successfully: "Preset '{0}' saved successfully."
+  session_not_found: "Session not found. Please use the brush to set coordinates first."
+  coordinates_incomplete: "To save a preset, all coordinates must be set (start, end, center axis start, center axis end)."
+  different_worlds: "All selected coordinates must be in the same world."
+  path_generation_failed: "Failed to generate center axis path."
+
+# Error Messages
+error:
+  file_not_found: "File not found: {0}"
+  save_failed: "Save failed: {0}"
+  load_failed: "Load failed: {0}"
+  invalid_coordinates: "Invalid coordinates."
+  world_mismatch: "World mismatch."
+
+# Language Related
+language:
+  current: "Current language: {0}"
+  available: "Available languages: {0}"
+  changed: "Language changed from {0} to {1}."
+  unsupported: "Unsupported language: {0}"
+  usage: "Usage: /lang [ja|en]"
+
+# Plugin Related
+plugin:
+  enabled: "RoadEditor plugin has been enabled."
+  disabled: "RoadEditor plugin has been disabled."
