@@ -105,7 +105,7 @@ public class RobjCommand implements CommandExecutor, TabCompleter {
         ItemStack brush = new ItemStack(Material.IRON_AXE);
         ItemMeta meta = brush.getItemMeta();
         if (meta != null) {
-            meta.setDisplayName(plugin.getMessageManager().getMessage("object.brush_name"));
+            meta.setDisplayName(plugin.getMessageManager().getMessage(player, "object.brush_name"));
             brush.setItemMeta(meta);
         }
         player.getInventory().addItem(brush);
@@ -263,5 +263,9 @@ public class RobjCommand implements CommandExecutor, TabCompleter {
         new BuildPlacementTask(plugin, player.getUniqueId(), placementQueue, false, true).runTaskTimer(plugin, 1, 1); // Default to block update enabled
 
         PlayerMessageUtil.sendTranslatedMessage(plugin, player, "object.placing_objects");
+    }
+
+    private String formatLocation(Player player, Location loc) {
+        return plugin.getMessageManager().getMessage(player, "location.format", loc.getBlockX(), loc.getBlockY(), loc.getBlockZ());
     }
 }

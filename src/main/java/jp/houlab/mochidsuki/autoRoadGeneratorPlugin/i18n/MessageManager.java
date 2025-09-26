@@ -2,12 +2,10 @@ package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.i18n;
 
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 
 import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -86,6 +84,51 @@ public class MessageManager {
         }
 
         // プレースホルダーの置換
+        if (args.length > 0) {
+            for (int i = 0; i < args.length; i++) {
+                message = message.replace("{" + i + "}", String.valueOf(args[i]));
+            }
+        }
+
+        return message;
+    }
+
+    public String getMessage(Player player, String key, Object... args) {
+        String playerLang = currentLanguage; // Default to server language
+        if (player != null) {
+            playerLang = player.getLocale().split("_")[0].toLowerCase();
+        }
+
+        String message = null;
+        FileConfiguration langConfig = languageConfigs.get(playerLang);
+
+        // 1. Try player's language
+        if (langConfig != null) {
+            message = langConfig.getString(key);
+        }
+
+        // 2. If not found, fall back to server's default language
+        if (message == null && !playerLang.equals(currentLanguage)) {
+            FileConfiguration serverLangConfig = languageConfigs.get(currentLanguage);
+            if (serverLangConfig != null) {
+                message = serverLangConfig.getString(key);
+            }
+        }
+
+        // 3. If still not found, fall back to Japanese ("ja") as a final resort
+        if (message == null && !currentLanguage.equals("ja") && !playerLang.equals("ja")) {
+            FileConfiguration jaConfig = languageConfigs.get("ja");
+            if (jaConfig != null) {
+                message = jaConfig.getString(key);
+            }
+        }
+
+        // 4. If still not found, return the key
+        if (message == null) {
+            return "[Missing: " + key + "]";
+        }
+
+        // 5. Replace placeholders
         if (args.length > 0) {
             for (int i = 0; i < args.length; i++) {
                 message = message.replace("{" + i + "}", String.valueOf(args[i]));

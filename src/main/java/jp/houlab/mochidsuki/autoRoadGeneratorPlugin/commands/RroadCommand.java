@@ -134,8 +134,8 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
             return;
         }
 
-        String modeMessage = onlyAir ? " (Only Air Mode)" : "";
-        String updateMessage = updateBlockData ? "" : " (No Block Update)";
+        String modeMessage = onlyAir ? " " + plugin.getMessageManager().getMessage(player, "road.build.mode.only_air") : "";
+        String updateMessage = !updateBlockData ? " " + plugin.getMessageManager().getMessage(player, "road.build.mode.no_block_update") : "";
         PlayerMessageUtil.sendTranslatedMessage(plugin, player, "road.building_started_details", presetName, edges.size(), modeMessage, updateMessage);
 
 
@@ -164,11 +164,11 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
         ItemStack presetBrush = new ItemStack(Material.GOLDEN_AXE);
         ItemMeta presetMeta = presetBrush.getItemMeta();
         if (presetMeta != null) {
-            presetMeta.setDisplayName(plugin.getMessageManager().getMessage("road.brush_name"));
+            presetMeta.setDisplayName(plugin.getMessageManager().getMessage(player, "road.brush_name"));
             presetMeta.setLore(Arrays.asList(
-                    plugin.getMessageManager().getMessage("road.brush_lore1"),
-                    plugin.getMessageManager().getMessage("road.brush_lore2"),
-                    plugin.getMessageManager().getMessage("road.brush_lore3")
+                    plugin.getMessageManager().getMessage(player, "road.brush_lore1"),
+                    plugin.getMessageManager().getMessage(player, "road.brush_lore2"),
+                    plugin.getMessageManager().getMessage(player, "road.brush_lore3")
             ));
             presetBrush.setItemMeta(presetMeta);
         }
@@ -326,7 +326,7 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
 
         Location pasteReferencePoint = player.getLocation().getBlock().getLocation();
 
-        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "road.preset_pasting_with_ref", presetName, formatLocation(pasteReferencePoint));
+        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "road.preset_pasting_with_ref", presetName, formatLocation(player, pasteReferencePoint));
 
         Location axisPoint = pasteReferencePoint;
 
@@ -406,7 +406,7 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
         return new Location(loc1.getWorld(), Math.max(loc1.getX(), loc2.getX()), Math.max(loc1.getY(), loc2.getY()), Math.max(loc1.getZ(), loc2.getZ()));
     }
 
-    private String formatLocation(Location loc) {
-        return "(" + loc.getBlockX() + ", " + loc.getBlockY() + ", " + loc.getBlockZ() + ")";
+    private String formatLocation(Player player, Location loc) {
+        return plugin.getMessageManager().getMessage(player, "location.format", loc.getBlockX(), loc.getBlockY(), loc.getBlockZ());
     }
 }
