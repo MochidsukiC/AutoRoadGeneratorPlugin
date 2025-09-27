@@ -1,8 +1,8 @@
 package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build;
 
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.PlayerMessageUtil;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -12,14 +12,31 @@ import org.bukkit.scheduler.BukkitRunnable;
 import java.util.Queue;
 import java.util.UUID;
 
+/**
+ * ブロック配置タスククラス
+ *
+ * 道路、壁、オブジェクトの非同期ブロック配置を管理します。
+ * パフォーマンスを最適化するため、1ティックあたりの配置数を制限し、
+ * プログレス表示とETA計算を提供します。
+ *
+ * @author Mochidsuki
+ * @version 1.0.0
+ * @since 1.0.0
+ */
 public class BuildPlacementTask extends BukkitRunnable {
+
+    // 定数定義
+    /** 1ティックあたりの最大ブロック配置数 */
+    private static final int BLOCKS_PER_TICK = 500;
+    /** プログレス報告間隔（ミリ秒） */
+    private static final long PROGRESS_REPORT_INTERVAL = 5000;
 
     private final AutoRoadGeneratorPluginMain plugin;
     private final UUID playerUUID;
     private final Queue<BlockPlacementInfo> placementQueue;
     private final boolean onlyAir;
     private final boolean updateBlockData; // ブロック更新を行うかどうか
-    private final int blocksPerTick = 500; // 1ティックあたりの設置ブロック数
+    private final int blocksPerTick = BLOCKS_PER_TICK;
     private int totalBlocksPlaced = 0;
     private final int totalBlocksToPlace;
     private long startTime = System.currentTimeMillis();
@@ -51,7 +68,7 @@ public class BuildPlacementTask extends BukkitRunnable {
             // 全てのブロックの設置が完了
             Bukkit.getScheduler().runTask(plugin, () -> {
                 if (Bukkit.getPlayer(playerUUID) != null) {
-                    Bukkit.getPlayer(playerUUID).sendMessage(ChatColor.GREEN + "道路の建築が完了しました！ (合計 " + totalBlocksPlaced + " ブロック)");
+                    PlayerMessageUtil.sendTranslatedMessage(plugin, Bukkit.getPlayer(playerUUID), "build.construction_complete", totalBlocksPlaced);
                 }
             });
             this.cancel(); // タスクを自己終了
@@ -92,8 +109,8 @@ public class BuildPlacementTask extends BukkitRunnable {
         if (totalBlocksToPlace > 0) {
             long currentTime = System.currentTimeMillis();
 
-            // 5秒経過した場合のみ報告（より頻繁に更新）
-            if (currentTime - lastReportTime >= 5000) { // 5秒 = 5000ms
+            // プログレス報告間隔チェック
+            if (currentTime - lastReportTime >= PROGRESS_REPORT_INTERVAL) {
                 lastReportTime = currentTime;
                 Bukkit.getScheduler().runTask(plugin, () -> {
                     Player player = Bukkit.getPlayer(playerUUID);
@@ -110,19 +127,19 @@ public class BuildPlacementTask extends BukkitRunnable {
                             if (remainingTime > 0) {
                                 long remainingSeconds = remainingTime / 1000;
                                 if (remainingSeconds < 60) {
-                                    etaText = " ETA: " + remainingSeconds + "秒";
+                                    etaText = plugin.getMessageManager().getMessage("build.eta_seconds", remainingSeconds);
                                 } else {
                                     long remainingMinutes = remainingSeconds / 60;
                                     long remainingSecondsRemainder = remainingSeconds % 60;
-                                    etaText = " ETA: " + remainingMinutes + "分" + remainingSecondsRemainder + "秒";
+                                    etaText = plugin.getMessageManager().getMessage("build.eta_minutes", remainingMinutes, remainingSecondsRemainder);
                                 }
                             } else {
-                                etaText = " ETA: まもなく完了";
+                                etaText = plugin.getMessageManager().getMessage("build.eta_soon");
                             }
                         }
 
-                        String modeText = onlyAir ? " (空気ブロックのみ)" : "";
-                        player.sendMessage(ChatColor.AQUA + "設置進行: " + currentPercent + "% (" + totalBlocksPlaced + "/" + totalBlocksToPlace + ")" + etaText + modeText);
+                        String modeText = onlyAir ? plugin.getMessageManager().getMessage("build.air_mode_only") : "";
+                        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "build.placement_progress", currentPercent, totalBlocksPlaced, totalBlocksToPlace, etaText, modeText);
                     }
                 });
             }
@@ -170,7 +187,7 @@ public class BuildPlacementTask extends BukkitRunnable {
             return cleanData;
         } catch (Exception e) {
             // エラーが発生した場合は元のデータを返す
-            plugin.getLogger().warning("接続データ削除中にエラー: " + e.getMessage());
+            plugin.getLogger().warning(plugin.getMessageManager().getMessage("log.connection_delete_error", e.getMessage()));
             return originalData;
         }
     }

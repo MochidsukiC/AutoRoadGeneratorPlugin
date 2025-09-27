@@ -1,0 +1,19 @@
+# Wooden Fence Wall Preset
+# A decorative wooden fence for park roads
+# 公園道路用の装飾的な木製フェンス
+
+name: wooden_fence
+lengthX: 1
+widthZ: 1
+heightY: 2
+axisZOffset: 0
+axisYOffset: 0
+slices:
+  - xPosition: 0
+    blocks:
+      - z: 0
+        y: 0
+        blockString: "minecraft:oak_fence"
+      - z: 0
+        y: 1
+        blockString: "minecraft:oak_fence"

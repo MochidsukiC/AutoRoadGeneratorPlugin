@@ -1,5 +1,6 @@
 package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.roadObjects;
 
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.PresetData;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.util.Vector;
 
@@ -8,7 +9,7 @@ import java.util.Map;
 /**
  * 道路に設置するオブジェクトの構造を保持するプリセットクラス。
  */
-public class ObjectPreset {
+public class ObjectPreset implements PresetData {
 
     private final String name;
     private final Map<Vector, BlockData> blocks;
@@ -42,5 +43,10 @@ public class ObjectPreset {
 
     public Vector getDimensions() {
         return dimensions;
+    }
+
+    @Override
+    public PresetType getType() {
+        return PresetType.OBJECT;
     }
 }

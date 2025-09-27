@@ -1,9 +1,9 @@
 package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset;
 
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
 import org.bukkit.Bukkit;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.configuration.file.YamlConfiguration;
-import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
 import java.io.IOException;
@@ -12,13 +12,24 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 道路プリセットの管理を行うマネージャークラス
+ *
+ * 道路プリセットの保存・読み込み・一覧取得などの機能を提供します。
+ * プリセットデータはYAML形式でファイルシステムに保存され、
+ * メモリ内でキャッシュして高速アクセスを実現します。
+ *
+ * @author Mochidsuki
+ * @version 1.0.0
+ * @since 1.0.0
+ */
 public class PresetManager {
 
-    private final JavaPlugin plugin;
+    private final AutoRoadGeneratorPluginMain plugin;
     private final File presetsFolder;
     private final Map<String, RoadPreset> loadedPresets = new HashMap<>();
 
-    public PresetManager(JavaPlugin plugin) {
+    public PresetManager(AutoRoadGeneratorPluginMain plugin) {
         this.plugin = plugin;
         // preset/road/フォルダに変更
         File presetFolder = new File(plugin.getDataFolder(), "preset");
@@ -40,14 +51,14 @@ public class PresetManager {
     }
 
     public void savePreset(RoadPreset preset) {
-        plugin.getLogger().info("savePreset呼び出し: " + preset.getName() + " (スライス数: " + preset.getSlices().size() + ")");
+        plugin.getLogger().info(plugin.getMessageManager().getMessage("log.preset_save_call", preset.getName(), preset.getSlices().size()));
         // Convert legacy format to slice-based format before saving
         RoadPreset sliceBasedPreset = convertToSliceBased(preset);
         saveSliceBasedPreset(sliceBasedPreset);
     }
 
     private void saveSliceBasedPreset(RoadPreset preset) {
-        plugin.getLogger().info("saveSliceBasedPreset開始: " + preset.getName() + " (スライス数: " + preset.getSlices().size() + ")");
+        plugin.getLogger().info(plugin.getMessageManager().getMessage("log.save_slice_preset_start", preset.getName(), preset.getSlices().size()));
         File presetFile = new File(presetsFolder, preset.getName() + ".yml");
         YamlConfiguration config = new YamlConfiguration();
 
@@ -83,11 +94,10 @@ public class PresetManager {
             config.save(presetFile);
 
             // キャッシュ保存前のプリセット詳細情報
-            plugin.getLogger().info("キャッシュ保存前チェック: " + preset.getName() +
+            plugin.getLogger().info(plugin.getMessageManager().getMessage("log.cache_save_check", preset.getName(), preset.getSlices().size()) +
                 " lengthX=" + preset.getLengthX() +
                 " widthZ=" + preset.getWidthZ() +
-                " heightY=" + preset.getHeightY() +
-                " スライス数=" + preset.getSlices().size());
+                " heightY=" + preset.getHeightY());
 
             // 各スライスの詳細もチェック
             for (int i = 0; i < Math.min(3, preset.getSlices().size()); i++) {
@@ -100,15 +110,14 @@ public class PresetManager {
                         }
                     }
                 }
-                plugin.getLogger().info("  スライス[" + i + "]: xPos=" + slice.getXPosition() +
-                    " size=" + slice.getWidthZ() + "x" + slice.getHeightY() +
-                    " ブロック数=" + blockCount);
+                plugin.getLogger().info(plugin.getMessageManager().getMessage("log.slice_details", i, slice.getXPosition(), blockCount) +
+                    " size=" + slice.getWidthZ() + "x" + slice.getHeightY());
             }
 
             loadedPresets.put(preset.getName(), preset);
-            plugin.getLogger().info("Preset '" + preset.getName() + "' saved successfully (slice-based format). キャッシュに保存完了.");
+            plugin.getLogger().info(plugin.getMessageManager().getMessage("log.preset_saved_cache", preset.getName()));
         } catch (IOException e) {
-            plugin.getLogger().severe("Could not save preset '" + preset.getName() + "': " + e.getMessage());
+            plugin.getLogger().severe(plugin.getMessageManager().getMessage("error.save_failed", preset.getName(), e.getMessage()));
         }
     }
 
@@ -122,7 +131,7 @@ public class PresetManager {
     public RoadPreset loadPreset(String name) {
         if (loadedPresets.containsKey(name)) {
             RoadPreset cachedPreset = loadedPresets.get(name);
-            plugin.getLogger().info("loadPreset: キャッシュから読み込み '" + name + "' (スライス数: " + cachedPreset.getSlices().size() + ") [CACHED]");
+            plugin.getLogger().info(plugin.getMessageManager().getMessage("log.preset_loaded_cache", name, cachedPreset.getSlices().size()));
 
             // キャッシュされたプリセットの詳細をチェック
             if (cachedPreset.getSlices().size() > 0) {
@@ -135,8 +144,7 @@ public class PresetManager {
                         }
                     }
                 }
-                plugin.getLogger().info("  [CACHED] 最初のスライス詳細: widthZ=" + firstSlice.getWidthZ() +
-                    ", heightY=" + firstSlice.getHeightY() + ", ブロック数=" + blockCount);
+                plugin.getLogger().info(plugin.getMessageManager().getMessage("log.cached_slice_details", firstSlice.getWidthZ(), firstSlice.getHeightY(), blockCount));
             }
 
             return cachedPreset;
@@ -144,7 +152,7 @@ public class PresetManager {
 
         File presetFile = new File(presetsFolder, name + ".yml");
         if (!presetFile.exists()) {
-            plugin.getLogger().warning("Preset '" + name + "' not found.");
+            plugin.getLogger().warning(plugin.getMessageManager().getMessage("road.preset_not_found", name));
             return null;
         }
 
@@ -155,7 +163,7 @@ public class PresetManager {
 
         if (preset != null) {
             loadedPresets.put(name, preset);
-            plugin.getLogger().info("Preset '" + name + "' loaded successfully (" + format + " format). ファイルから読み込みキャッシュに保存. スライス数: " + preset.getSlices().size() + " [FILE-LOADED]");
+            plugin.getLogger().info(plugin.getMessageManager().getMessage("log.preset_loaded_file", name, format, preset.getSlices().size()));
 
             // ファイルから読み込んだプリセットの詳細をチェック
             if (preset.getSlices().size() > 0) {
@@ -168,8 +176,7 @@ public class PresetManager {
                         }
                     }
                 }
-                plugin.getLogger().info("  [FILE-LOADED] 最初のスライス詳細: widthZ=" + firstSlice.getWidthZ() +
-                    ", heightY=" + firstSlice.getHeightY() + ", ブロック数=" + blockCount);
+                plugin.getLogger().info(plugin.getMessageManager().getMessage("log.file_slice_details", firstSlice.getWidthZ(), firstSlice.getHeightY(), blockCount));
             }
         }
 
@@ -208,9 +215,9 @@ public class PresetManager {
                             slice.setBlock(z, y, block);
                             slice.setBlockString(z, y, blockDataString);
                         } catch (NumberFormatException e) {
-                            plugin.getLogger().warning("Invalid coordinate format in preset: " + entry.getKey());
+                            plugin.getLogger().warning(plugin.getMessageManager().getMessage("error.invalid_coordinates") + ": " + entry.getKey());
                         } catch (IllegalArgumentException e) {
-                            plugin.getLogger().warning("Invalid block data in preset '"+presetName+"': " + entry.getValue());
+                            plugin.getLogger().warning(plugin.getMessageManager().getMessage("error.invalid_block_data", presetName, entry.getValue()));
                         }
                     }
                 }

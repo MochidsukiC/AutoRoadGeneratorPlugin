@@ -1,8 +1,10 @@
 package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset;
 
-import org.bukkit.ChatColor;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.PlayerMessageUtil;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -11,68 +13,82 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
 
-import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 
 public class PresetListener implements Listener {
 
+    private final AutoRoadGeneratorPluginMain plugin;
     private final Map<UUID, PresetCreationSession> playerSessions;
 
-    public PresetListener(Map<UUID, PresetCreationSession> playerSessions) {
+    public PresetListener(AutoRoadGeneratorPluginMain plugin, Map<UUID, PresetCreationSession> playerSessions) {
+        this.plugin = plugin;
         this.playerSessions = playerSessions;
     }
 
     @EventHandler
     public void onPlayerInteract(PlayerInteractEvent event) {
-        if(event.getHand() != EquipmentSlot.HAND) return;
+        if (event.getHand() != EquipmentSlot.HAND) return;
 
         Player player = event.getPlayer();
         ItemStack item = player.getInventory().getItemInMainHand();
 
-        // Check if the item is the Preset Brush
-        if (item.getType() == Material.GOLDEN_AXE && item.hasItemMeta()) {
-            ItemMeta meta = item.getItemMeta();
-            if (meta != null && Objects.equals(meta.getDisplayName(), ChatColor.GOLD + "プリセットブラシ")) {
-                List<String> lore = meta.getLore();
-                if (lore != null && lore.contains(ChatColor.YELLOW + "左クリック: 始点を設定")) {
-                    event.setCancelled(true); // Prevent block breaking/placement with the brush
+        // Check if the item is the Preset Brush using PersistentDataContainer
+        if (item.getType() != Material.GOLDEN_AXE || !item.hasItemMeta()) {
+            return;
+        }
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null) {
+            return;
+        }
 
-                    PresetCreationSession session = playerSessions.computeIfAbsent(player.getUniqueId(), k -> new PresetCreationSession());
-                    Location clickedBlockLocation = event.getClickedBlock() != null ? event.getClickedBlock().getLocation() : null;
+        PersistentDataContainer data = meta.getPersistentDataContainer();
+        NamespacedKey key = new NamespacedKey(plugin, "brush_type");
 
-                    if (clickedBlockLocation == null) {
-                        player.sendMessage(ChatColor.RED + "ブロックをターゲットしてください。");
-                        return;
-                    }
+        if (!data.has(key, PersistentDataType.STRING)) {
+            return;
+        }
 
-                    if (player.isSneaking()) {
-                        // Shift + Click
-                        if (event.getAction() == Action.LEFT_CLICK_BLOCK) {
-                            session.setAxisStart(clickedBlockLocation);
-                            player.sendMessage(ChatColor.YELLOW + "中心軸の始点を設定しました: " + formatLocation(clickedBlockLocation));
-                        } else if (event.getAction() == Action.RIGHT_CLICK_BLOCK) {
-                            session.setAxisEnd(clickedBlockLocation);
-                            player.sendMessage(ChatColor.YELLOW + "中心軸の終点を設定しました: " + formatLocation(clickedBlockLocation));
-                        }
-                    } else {
-                        // Normal Click
-                        if (event.getAction() == Action.LEFT_CLICK_BLOCK) {
-                            session.setPos1(clickedBlockLocation);
-                            player.sendMessage(ChatColor.YELLOW + "始点を設定しました: " + formatLocation(clickedBlockLocation));
-                        } else if (event.getAction() == Action.RIGHT_CLICK_BLOCK) {
-                            session.setPos2(clickedBlockLocation);
-                            player.sendMessage(ChatColor.YELLOW + "終点を設定しました: " + formatLocation(clickedBlockLocation));
-                        }
-                    }
-                }
+        String brushType = data.get(key, PersistentDataType.STRING);
+        if (!"road_preset_brush".equals(brushType)) {
+            return;
+        }
+
+        event.setCancelled(true); // Prevent block breaking/placement with the brush
+
+        PresetCreationSession session = playerSessions.computeIfAbsent(player.getUniqueId(), k -> new PresetCreationSession());
+        Location clickedBlockLocation = event.getClickedBlock() != null ? event.getClickedBlock().getLocation() : null;
+
+        if (clickedBlockLocation == null) {
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "preset.target_block");
+            return;
+        }
+
+        if (player.isSneaking()) {
+            // Shift + Click for axis
+            if (event.getAction() == Action.LEFT_CLICK_BLOCK) {
+                session.setAxisStart(clickedBlockLocation);
+                PlayerMessageUtil.sendTranslatedMessage(plugin, player, "preset.axis_start_set", formatLocation(player, clickedBlockLocation));
+            } else if (event.getAction() == Action.RIGHT_CLICK_BLOCK) {
+                session.setAxisEnd(clickedBlockLocation);
+                PlayerMessageUtil.sendTranslatedMessage(plugin, player, "preset.axis_end_set", formatLocation(player, clickedBlockLocation));
+            }
+        } else {
+            // Normal Click for selection box
+            if (event.getAction() == Action.LEFT_CLICK_BLOCK) {
+                session.setPos1(clickedBlockLocation);
+                PlayerMessageUtil.sendTranslatedMessage(plugin, player, "preset.pos1_set", formatLocation(player, clickedBlockLocation));
+            } else if (event.getAction() == Action.RIGHT_CLICK_BLOCK) {
+                session.setPos2(clickedBlockLocation);
+                PlayerMessageUtil.sendTranslatedMessage(plugin, player, "preset.pos2_set", formatLocation(player, clickedBlockLocation));
             }
         }
     }
 
-    private String formatLocation(Location loc) {
-        return "(" + loc.getBlockX() + ", " + loc.getBlockY() + ", " + loc.getBlockZ() + ")";
+    private String formatLocation(Player player, Location loc) {
+        return plugin.getMessageManager().getMessage(player, "location.format", loc.getBlockX(), loc.getBlockY(), loc.getBlockZ());
     }
 }

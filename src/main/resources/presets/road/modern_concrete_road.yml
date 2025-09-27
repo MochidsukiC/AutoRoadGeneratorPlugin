@@ -1,0 +1,34 @@
+# Modern Concrete Road Preset
+# A modern road with concrete and yellow lines
+# 現代的なコンクリート道路（黄色いライン付き）
+
+name: modern_concrete_road
+lengthX: 1
+widthZ: 7
+heightY: 1
+axisZOffset: 3
+axisYOffset: 0
+slices:
+  - xPosition: 0
+    blocks:
+      - z: 0
+        y: 0
+        blockString: "minecraft:light_gray_concrete"
+      - z: 1
+        y: 0
+        blockString: "minecraft:gray_concrete"
+      - z: 2
+        y: 0
+        blockString: "minecraft:light_gray_concrete"
+      - z: 3
+        y: 0
+        blockString: "minecraft:yellow_concrete"
+      - z: 4
+        y: 0
+        blockString: "minecraft:light_gray_concrete"
+      - z: 5
+        y: 0
+        blockString: "minecraft:gray_concrete"
+      - z: 6
+        y: 0
+        blockString: "minecraft:light_gray_concrete"

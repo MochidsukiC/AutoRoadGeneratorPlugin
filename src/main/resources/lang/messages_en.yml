@@ -108,6 +108,7 @@ edit:
   mode_enabled: "Edit mode started."
   mode_disabled: "Edit mode ended."
   brush_name: "§6Road Brush"
+  road_brush_name: "§6Road Brush (Road Brush)"
   brush_usage: "§eAdd a point to the route."
 
 # Undo Command Related
@@ -130,9 +131,10 @@ preset:
 # Error Messages
 error:
   file_not_found: "File not found: {0}"
-  save_failed: "Save failed: {0}"
-  load_failed: "Load failed: {0}"
-  invalid_coordinates: "Invalid coordinates."
+  save_failed: "Save failed: {0} - {1}"
+  load_failed: "Load failed: {0} - {1}"
+  invalid_coordinates: "Invalid coordinates"
+  invalid_block_data: "Invalid block data in preset '{0}': {1}"
   world_mismatch: "World mismatch."
 
 # Language Related
@@ -147,3 +149,65 @@ language:
 plugin:
   enabled: "RoadEditor plugin has been enabled."
   disabled: "RoadEditor plugin has been disabled."
+
+# Route Edit Related
+route_edit:
+  anchor_moved: "§aAnchor moved."
+  anchor_deleted: "§eAnchor deleted. Edge will become straight."
+  anchor_deselected: "§7Anchor deselected."
+  anchor_selected: "§aAnchor selected. Right-click to confirm move destination."
+  anchor_edit_mode_changed: "§bAnchor edit mode changed to {0}."
+  edge_mode_changed: "§bEdge mode changed to {0}."
+  node_deleted: "§eNode deleted."
+  node_deselected: "§7Node deselected."
+  node_selected: "§aNode selected. Right-click to confirm move destination."
+  node_moved: "§aNode moved."
+  branch_start_selected: "§bBranch start point selected. Right-click the next node to connect."
+  first_node_created: "first node"
+  new_node_created: "new node"
+  node_created: " created."
+  existing_connection_deleted: "§eExisting connection deleted."
+  nodes_connected_with_anchor: "§aNodes connected and anchor created. Mode: {0}"
+  nodes_connected: "§aNodes connected. Mode: {0}"
+  cannot_connect_same_node: "§cCannot connect to the same node."
+  waypoint_added: "§bNew waypoint added to the route."
+  anchor_edit_mode_display: "§6Anchor Edit Mode: §d{0}"
+  current_edge_mode_display: "§6Current Edge Mode: §b{0}"
+
+# Build Related
+build:
+  calculation_complete: "§aAll road calculations completed. Integrating and optimizing block placement..."
+  air_mode_text: "§7 (air blocks only mode)"
+  integration_complete: "§aIntegration complete! Starting placement of §e{0}§a blocks{1}"
+  construction_complete: "§aRoad construction completed! §7(Total §e{0} §7blocks)"
+  eta_seconds: "§7 ETA: §e{0}§7 seconds"
+  eta_minutes: "§7 ETA: §e{0}§7 minutes §e{1}§7 seconds"
+  eta_soon: "§a ETA: completing soon"
+  air_mode_only: "§7 (air blocks only)"
+  placement_progress: "§bPlacement progress: §e{0}% §7({1}/{2}){3}{4}"
+  integrating_wall: "§aIntegrating wall sections..."
+  wall_integration_complete: "§aIntegration complete! Placing §e{0} §ablocks{1}"
+
+# Log Messages
+log:
+  preset_save_call: "savePreset called: {0} (slice count: {1})"
+  save_slice_preset_start: "saveSliceBasedPreset started: {0} (slice count: {1})"
+  cache_save_check: "Cache save check: {0} slice count={1}"
+  slice_details: "  Slice[{0}]: xPos={1} block count={2}"
+  preset_saved_cache: "Preset '{0}' saved successfully (slice-based format). Cache save completed."
+  preset_loaded_cache: "loadPreset: loaded from cache '{0}' (slice count: {1}) [CACHED]"
+  cached_slice_details: "  [CACHED] First slice details: widthZ={0}, heightY={1}, block count={2}"
+  preset_loaded_file: "Preset '{0}' loaded successfully ({1} format). Loaded from file and saved to cache. Slice count: {2} [FILE-LOADED]"
+  file_slice_details: "  [FILE-LOADED] First slice details: widthZ={0}, heightY={1}, block count={2}"
+  connection_delete_error: "Error deleting connection data: {0}"
+  path_chunk_processing_failed: "Path chunk processing failed for edge {0}: {1}"
+  failed_create_block_data: "Failed to create block data in final conversion: '{0}'"
+  error_message: "Error: {0}"
+  source_location: "Source location: ({0}, {1}, {2})"
+  yaw_slice_preset: "Yaw: {0}°, Slice: {1}, PresetZ: {2}"
+  unknown_build_session: "BuildManager: Received canvas for an unknown build session: {0}"
+  unknown_preset_format: "Unknown preset format: {0}"
+  preset_loaded_as: "Preset '{0}' loaded as {1}"
+  unknown_preset_type: "Unknown preset type: {0}"
+  road_preset_saved: "RoadPreset '{0}' saved successfully."
+  object_preset_saved: "ObjectPreset '{0}' saved successfully."

@@ -2,9 +2,26 @@ package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build;
 
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Queue;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
+/**
+ * 建築履歴の管理と取り消し機能を提供するマネージャークラス
+ *
+ * プレイヤーごとの建築履歴をスタック形式で管理し、
+ * rundo コマンドによる建築物の取り消し機能を実現します。
+ * 履歴データはメモリ内に保持され、サーバー再起動時にクリアされます。
+ *
+ * @author Mochidsuki
+ * @version 1.0.0
+ * @since 1.0.0
+ */
 public class BuildHistoryManager {
     // プレイヤーごとの建築履歴を保持するマップ。値のリストはスタックとして機能する。
     private static final Map<UUID, List<List<BlockPlacementInfo>>> buildHistory = new HashMap<>();

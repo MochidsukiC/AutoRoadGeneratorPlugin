@@ -6,14 +6,19 @@
 
     <groupId>jp.houlab.mochidsuki</groupId>
     <artifactId>AutoRoadGeneratorPlugin</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0.0</version>
     <packaging>jar</packaging>
 
-    <name>RoadEditor</name>
+    <name>AutoRoadGeneratorPlugin</name>
+    <description>Advanced road generation and editing plugin for Minecraft servers</description>
+    <url>https://github.com/mochidsuki/AutoRoadGeneratorPlugin</url>
 
     <properties>
         <java.version>17</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <proguard.version>7.4.2</proguard.version>
     </properties>
 
     <build>
@@ -25,21 +30,55 @@
                 <configuration>
                     <source>${java.version}</source>
                     <target>${java.version}</target>
+                    <compilerArgs>
+                        <arg>-Xpkginfo:always</arg>
+                        <arg>-parameters</arg>
+                    </compilerArgs>
                 </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
-                <version>3.2.4</version>
+                <version>3.4.1</version>
                 <executions>
                     <execution>
                         <phase>package</phase>
                         <goals>
                             <goal>shade</goal>
                         </goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <minimizeJar>true</minimizeJar>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
+            <!-- ProGuard disabled due to Paper 1.20.1 VerifyError compatibility issues -->
+            <!-- Alternative security measures: Maven Shade minimization + source code protection -->
+            <!--
+            <plugin>
+                <groupId>com.github.wvengen</groupId>
+                <artifactId>proguard-maven-plugin</artifactId>
+                <version>2.6.0</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>proguard</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <injar>${project.build.finalName}.jar</injar>
+                    <outjar>${project.build.finalName}-obfuscated.jar</outjar>
+                    <includeDependency>false</includeDependency>
+                    <obfuscate>true</obfuscate>
+                    <options>
+                        <option>@${basedir}/proguard.conf</option>
+                    </options>
+                </configuration>
+            </plugin>
+            -->
         </plugins>
         <resources>
             <resource>
@@ -65,6 +104,13 @@
             <groupId>org.spigotmc</groupId>
             <artifactId>spigot-api</artifactId>
             <version>1.20.1-R0.1-SNAPSHOT</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- ProGuard dependency -->
+        <dependency>
+            <groupId>com.guardsquare</groupId>
+            <artifactId>proguard-base</artifactId>
+            <version>${proguard.version}</version>
             <scope>provided</scope>
         </dependency>
     </dependencies>

@@ -1,0 +1,22 @@
+# Basic Stone Road Preset
+# A simple 3-block wide stone road for beginners
+# 基本的な石の道路プリセット（初心者向け）
+
+name: basic_stone_road
+lengthX: 1
+widthZ: 3
+heightY: 1
+axisZOffset: 1
+axisYOffset: 0
+slices:
+  - xPosition: 0
+    blocks:
+      - z: 0
+        y: 0
+        blockString: "minecraft:stone"
+      - z: 1
+        y: 0
+        blockString: "minecraft:stone"
+      - z: 2
+        y: 0
+        blockString: "minecraft:stone"

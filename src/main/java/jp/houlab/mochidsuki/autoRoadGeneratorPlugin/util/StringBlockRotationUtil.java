@@ -2,6 +2,7 @@ package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -10,10 +11,13 @@ import java.util.regex.Pattern;
  */
 public class StringBlockRotationUtil {
 
+    private static final Logger logger = Logger.getLogger(StringBlockRotationUtil.class.getName());
+
     // 90度時計回りの回転マッピング
     private static final Map<String, String> FACING_ROTATION = new HashMap<>();
     private static final Map<String, String> AXIS_ROTATION = new HashMap<>();
     private static final Map<String, String> RAIL_SHAPE_ROTATION = new HashMap<>();
+    private static final Map<String, String> STAIRS_SHAPE_ROTATION = new HashMap<>();
 
     static {
         // facingプロパティの回転
@@ -38,6 +42,13 @@ public class StringBlockRotationUtil {
         RAIL_SHAPE_ROTATION.put("south_east", "south_west");
         RAIL_SHAPE_ROTATION.put("south_west", "north_west");
         RAIL_SHAPE_ROTATION.put("north_west", "north_east");
+
+        // shapeプロパティ（階段）の回転（90度時計回り）
+        STAIRS_SHAPE_ROTATION.put("inner_left", "inner_right");
+        STAIRS_SHAPE_ROTATION.put("inner_right", "outer_right");
+        STAIRS_SHAPE_ROTATION.put("outer_left", "inner_left");
+        STAIRS_SHAPE_ROTATION.put("outer_right", "outer_left");
+        // straight は変更なし
     }
 
     /**
@@ -51,20 +62,30 @@ public class StringBlockRotationUtil {
             return blockDataString;
         }
 
-        // 角度を90度単位の回転回数に変換
-        int quarterTurns = getQuarterTurns(rotationAngle);
+        try {
+            // 角度を90度単位の回転回数に変換
+            int quarterTurns = getQuarterTurns(rotationAngle);
 
-        if (quarterTurns == 0) {
+            if (quarterTurns == 0) {
+                return blockDataString;
+            }
+
+            String result = blockDataString;
+            // quarterTurns回だけ90度回転を適用
+            for (int i = 0; i < quarterTurns; i++) {
+                result = rotateSingleStep(result);
+            }
+
+            return result;
+
+        } catch (Exception e) {
+            logger.severe("StringBlockRotationUtil.rotateBlockDataString failed for: '" + blockDataString +
+                         "' with angle: " + Math.toDegrees(rotationAngle) + "°");
+            logger.severe("Exception: " + e.getMessage());
+            e.printStackTrace();
+            // 失敗した場合は元の文字列を返す
             return blockDataString;
         }
-
-        String result = blockDataString;
-        // quarterTurns回だけ90度回転を適用
-        for (int i = 0; i < quarterTurns; i++) {
-            result = rotateSingleStep(result);
-        }
-
-        return result;
     }
 
     /**
@@ -75,11 +96,20 @@ public class StringBlockRotationUtil {
     private static String rotateSingleStep(String blockDataString) {
         String result = blockDataString;
 
-        // 各プロパティを順番に回転
-        result = rotateFacingProperty(result);
-        result = rotateAxisProperty(result);
-        result = rotateRailShapeProperty(result);
-        result = rotateMultipleFacingProperties(result); // For walls/fences
+        // ブロックタイプ別に特化した処理
+        if (result.contains("_stairs")) {
+            // 階段専用処理
+            result = rotateStairsProperties(result);
+        } else if (result.contains("_rail")) {
+            // レール専用処理
+            result = rotateFacingProperty(result);
+            result = rotateRailShapeProperty(result);
+        } else {
+            // その他のブロック
+            result = rotateFacingProperty(result);
+            result = rotateAxisProperty(result);
+            result = rotateMultipleFacingProperties(result); // For walls/fences
+        }
 
         return result;
     }
@@ -102,7 +132,45 @@ public class StringBlockRotationUtil {
      * "shape"プロパティ（レール）を90度回転させます。
      */
     private static String rotateRailShapeProperty(String blockDataString) {
-        return rotateGenericProperty(blockDataString, "shape", RAIL_SHAPE_ROTATION);
+        // レールのブロックIDを確認（_railで終わるもの）
+        if (blockDataString.contains("_rail")) {
+            return rotateGenericProperty(blockDataString, "shape", RAIL_SHAPE_ROTATION);
+        }
+        return blockDataString;
+    }
+
+    /**
+     * 階段のすべてのプロパティを一括で90度回転させます。
+     */
+    private static String rotateStairsProperties(String blockDataString) {
+        String result = blockDataString;
+
+        // facingプロパティを回転
+        result = rotateFacingProperty(result);
+
+        // shapeプロパティを回転（存在する場合のみ）
+        String shapeValue = extractPropertyValue(result, "shape");
+        if (shapeValue != null) {
+            String newShapeValue = STAIRS_SHAPE_ROTATION.get(shapeValue);
+            if (newShapeValue != null) {
+                result = result.replace("shape=" + shapeValue, "shape=" + newShapeValue);
+            }
+            // straightの場合はnewShapeValueがnullになるが、これは正しい（変更不要）
+        }
+
+        return result;
+    }
+
+    /**
+     * "shape"プロパティ（階段）を90度回転させます。
+     * @deprecated rotateStairsPropertiesを使用してください
+     */
+    private static String rotateStairsShapeProperty(String blockDataString) {
+        // 階段のブロックIDを確認（_stairsで終わるもの）
+        if (blockDataString.contains("_stairs")) {
+            return rotateGenericProperty(blockDataString, "shape", STAIRS_SHAPE_ROTATION);
+        }
+        return blockDataString;
     }
 
     /**

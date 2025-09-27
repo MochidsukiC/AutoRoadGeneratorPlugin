@@ -3,9 +3,9 @@ package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.RoadPreset;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteSession;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.PlayerMessageUtil;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.StringBlockRotationUtil;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.block.data.BlockData;
@@ -13,8 +13,20 @@ import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Queue;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -102,7 +114,7 @@ public class BuildCalculationTask extends BukkitRunnable {
                 future.get();
             }
         } catch (InterruptedException | ExecutionException e) {
-            plugin.getLogger().severe("Path chunk processing failed for edge " + edgeId + ": " + e.getMessage());
+            plugin.getLogger().severe(plugin.getMessageManager().getMessage("log.path_chunk_processing_failed", edgeId, e.getMessage()));
             e.printStackTrace();
         } finally {
             executor.shutdown();
@@ -193,7 +205,7 @@ public class BuildCalculationTask extends BukkitRunnable {
             for (int y = preset.getMinY(); y <= preset.getMaxY(); y++) {
                 String blockDataString = slice.getBlockDataStringRelativeToAxis(zOffset, y, preset.getAxisZOffset(), preset.getAxisYOffset());
 
-                if (blockDataString != null && !blockDataString.contains("air")) {
+                if (blockDataString != null && !blockDataString.equals("minecraft:air") && !blockDataString.startsWith("minecraft:air[")) {
                     Location blockLocation = currentLoc.clone().add(0, y, 0);
                     String finalBlockDataString = blockDataString;
 
@@ -299,7 +311,11 @@ public class BuildCalculationTask extends BukkitRunnable {
                 Location loc = new Location(world, Math.floor(data.sourceX()), Math.floor(data.sourceY()), Math.floor(data.sourceZ()));
                 result.add(new BlockPlacementInfo(loc, blockData));
             } catch (IllegalArgumentException e) {
-                plugin.getLogger().warning("Failed to create block data in final conversion: '" + data.blockDataString() + "' - Error: " + e.getMessage());
+                plugin.getLogger().severe(plugin.getMessageManager().getMessage("log.failed_create_block_data", data.blockDataString()));
+                plugin.getLogger().severe(plugin.getMessageManager().getMessage("log.error_message", e.getMessage()));
+                plugin.getLogger().severe(plugin.getMessageManager().getMessage("log.source_location", data.sourceX(), data.sourceY(), data.sourceZ()));
+                plugin.getLogger().severe(plugin.getMessageManager().getMessage("log.yaw_slice_preset", data.yaw(), data.sliceIndex(), data.presetZ()));
+                e.printStackTrace();
             }
         }
         return result;
@@ -368,7 +384,7 @@ public class BuildCalculationTask extends BukkitRunnable {
         public static void addCanvasToSession(UUID buildId, UUID edgeId, ConcurrentHashMap<Vector3d, AtomicReference<CustomData>> canvas, AutoRoadGeneratorPluginMain plugin, UUID playerUUID, boolean onlyAir, boolean updateBlockData, RoadPreset roadPreset) {
             Map<UUID, ConcurrentHashMap<Vector3d, AtomicReference<CustomData>>> session = buildSessions.get(buildId);
             if (session == null) {
-                plugin.getLogger().warning("BuildManager: Received canvas for an unknown build session: " + buildId);
+                plugin.getLogger().warning(plugin.getMessageManager().getMessage("log.unknown_build_session", buildId));
                 return;
             }
             session.put(edgeId, canvas);
@@ -391,7 +407,7 @@ public class BuildCalculationTask extends BukkitRunnable {
             Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
                 Player player = Bukkit.getPlayer(playerUUID);
                 if (player != null) {
-                    player.sendMessage(ChatColor.YELLOW + "全道路の計算が完了しました。ブロック配置を統合・最適化しています...");
+                    PlayerMessageUtil.sendTranslatedMessage(plugin, player, "build.calculation_complete");
                 }
 
                 ConcurrentHashMap<Vector3d, AtomicReference<CustomData>> mergedCanvas = new ConcurrentHashMap<>();
@@ -409,7 +425,7 @@ public class BuildCalculationTask extends BukkitRunnable {
                 }
 
                 // Conditionally rotate block data here, after merging and before final conversion
-                if (!updateBlockData) { // This corresponds to --noupdateblockdata being present
+                if (updateBlockData) { // This corresponds to normal rotation behavior
                     mergedCanvas.forEach((pos, dataRef) -> {
                         CustomData originalData = dataRef.get();
                         if (originalData != null) {
@@ -433,8 +449,8 @@ public class BuildCalculationTask extends BukkitRunnable {
                         originalBlocks.add(new BlockPlacementInfo(loc, loc.getBlock().getBlockData()));
                     }
 
-                    String modeText = onlyAir ? " (空気ブロックのみ設置)" : "";
-                    player.sendMessage(ChatColor.GREEN + "統合完了! " + worldBlocks.size() + "ブロックの設置を開始します" + modeText);
+                    String modeText = onlyAir ? plugin.getMessageManager().getMessage("build.air_mode_text") : "";
+                    PlayerMessageUtil.sendTranslatedMessage(plugin, player, "build.integration_complete", worldBlocks.size(), modeText);
 
                     BuildHistoryManager.addBuildHistory(playerUUID, originalBlocks);
                     Queue<BlockPlacementInfo> placementQueue = new ConcurrentLinkedQueue<>(worldBlocks);

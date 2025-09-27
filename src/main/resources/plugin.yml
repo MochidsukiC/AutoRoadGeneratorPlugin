@@ -1,31 +1,78 @@
 name: AutoRoadGeneratorPlugin
-version: 1.0-SNAPSHOT
+version: 1.0.0
 main: jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain
 api-version: '1.20'
+author: 'Mochidsuki'
+description: 'Advanced road generation and editing plugin with preset system'
+website: 'https://github.com/mochidsuki/AutoRoadGeneratorPlugin'
+prefix: 'AutoRoadGen'
+load: STARTUP
 commands:
   rroad:
-    aliases:
-      - rr
-    description: Manages road presets and construction.
-    usage: /rroad <brush|save <name>|build <preset_name>|paste <preset_name>>
+    aliases: [rr]
+    description: 'Manages road presets and construction'
+    usage: '/rroad <brush|save <name>|build <preset_name>|paste <preset_name>> [-onlyair] [--noupdateblockdata]'
+    permission: 'autoroadgen.road'
+    permission-message: 'You do not have permission to use road commands'
   robj:
-    aliases:
-      - ro
-    description: Manages object presets and placement.
-    usage: /robj <brush|save <name>|place <preset_name> [options]>
+    aliases: [ro]
+    description: 'Manages object presets and placement'
+    usage: '/robj <brush|save <name>|place <preset_name> [options]>'
+    permission: 'autoroadgen.object'
+    permission-message: 'You do not have permission to use object commands'
   rwall:
-    aliases:
-      - rw
-    description: Manages wall presets and construction along roads.
-    usage: /rwall <brush|save <name>|paste <name>|build <preset_name> <offset> [-onlyair]>
+    aliases: [rw]
+    description: 'Manages wall presets and construction along roads'
+    usage: '/rwall <brush|save <name>|paste <name>|build <preset_name> <offset> [-onlyair]>'
+    permission: 'autoroadgen.wall'
+    permission-message: 'You do not have permission to use wall commands'
   redit:
-    aliases:
-      - re
-    description: Toggles road path editing mode or gets the road brush.
-    usage: /redit [brush]
+    aliases: [re]
+    description: 'Toggles road path editing mode or gets the road brush'
+    usage: '/redit [brush]'
+    permission: 'autoroadgen.edit'
+    permission-message: 'You do not have permission to use edit commands'
   rundo:
-    description: Undoes the last road or object placement.
-    usage: /rundo
+    description: 'Undoes the last road or object placement'
+    usage: '/rundo'
+    permission: 'autoroadgen.undo'
+    permission-message: 'You do not have permission to use undo command'
   lang:
-    description: Changes the plugin language.
-    usage: /lang [ja|en]
+    description: 'Changes the plugin language'
+    usage: '/lang [ja|en]'
+    permission: 'autoroadgen.language'
+    permission-message: 'You do not have permission to change language'
+
+permissions:
+  autoroadgen.*:
+    description: 'Gives access to all AutoRoadGeneratorPlugin commands'
+    children:
+      autoroadgen.road: true
+      autoroadgen.object: true
+      autoroadgen.wall: true
+      autoroadgen.edit: true
+      autoroadgen.undo: true
+      autoroadgen.language: true
+      autoroadgen.admin: true
+    default: op
+  autoroadgen.road:
+    description: 'Allows use of road commands'
+    default: true
+  autoroadgen.object:
+    description: 'Allows use of object commands'
+    default: true
+  autoroadgen.wall:
+    description: 'Allows use of wall commands'
+    default: true
+  autoroadgen.edit:
+    description: 'Allows use of edit commands'
+    default: true
+  autoroadgen.undo:
+    description: 'Allows use of undo command'
+    default: true
+  autoroadgen.language:
+    description: 'Allows changing plugin language'
+    default: true
+  autoroadgen.admin:
+    description: 'Allows administrative functions'
+    default: op

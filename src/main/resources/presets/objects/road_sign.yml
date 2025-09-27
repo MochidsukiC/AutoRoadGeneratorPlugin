@@ -1,0 +1,22 @@
+# Road Sign Object Preset
+# A simple road sign with post
+# ポスト付きのシンプルな道路標識
+
+name: road_sign
+lengthX: 1
+widthZ: 1
+heightY: 3
+axisZOffset: 0
+axisYOffset: 0
+slices:
+  - xPosition: 0
+    blocks:
+      - z: 0
+        y: 0
+        blockString: "minecraft:cobblestone"
+      - z: 0
+        y: 1
+        blockString: "minecraft:oak_fence"
+      - z: 0
+        y: 2
+        blockString: "minecraft:oak_sign"

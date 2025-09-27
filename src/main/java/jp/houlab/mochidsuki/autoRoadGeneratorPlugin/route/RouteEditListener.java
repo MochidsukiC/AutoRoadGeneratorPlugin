@@ -5,6 +5,7 @@ import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.PlayerMessageUtil;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -16,6 +17,7 @@ import org.bukkit.event.player.PlayerItemHeldEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.RayTraceResult;
 
@@ -125,7 +127,7 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
         ItemStack item = event.getItem();
         if (item == null || item.getType() != Material.BLAZE_ROD || !item.hasItemMeta()) return;
         ItemMeta meta = item.getItemMeta();
-        if (meta == null || !meta.getDisplayName().equals(ChatColor.GOLD + "道路ブラシ (Road Brush)")) return;
+        if (meta == null || !meta.getPersistentDataContainer().has(new NamespacedKey(plugin, "road_brush"), PersistentDataType.STRING)) return;
         if(player.getCooldown(Material.BLAZE_ROD) > 0) return;
 
         Action action = event.getAction();
@@ -173,7 +175,7 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
                 );
                 anchorToMove.setLocation(finalAnchorLocation);
                 session.setSelectedAnchorId(null); // 選択解除
-                player.sendMessage(ChatColor.GREEN + "アンカーを移動しました。");
+                PlayerMessageUtil.sendTranslatedMessage(plugin, player, "route_edit.anchor_moved");
                 updateRoute(player, session);
             }
             return;
@@ -207,19 +209,19 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
                     edge.setCurveAnchor(null); // エッジからアンカーを解除
                 }
                 session.removeAnchor(clickedAnchorId);
-                player.sendMessage(ChatColor.YELLOW + "アンカーを削除しました。エッジは直線になります。");
+                PlayerMessageUtil.sendTranslatedMessage(plugin, player, "route_edit.anchor_deleted");
                 updateRoute(player, session);
             }
         } else {
             // --- アンカー選択/選択解除処理 --- (通常クリック)
             if (clickedAnchorId.equals(session.getSelectedAnchorId())) {
                 session.setSelectedAnchorId(null); // 選択解除
-                player.sendMessage(ChatColor.GRAY + "アンカーの選択を解除しました。");
+                PlayerMessageUtil.sendTranslatedMessage(plugin, player, "route_edit.anchor_deselected");
                 updateRoute(player, session); // マーカーの表示更新
             } else {
                 session.setSelectedAnchorId(clickedAnchorId); // 選択
                 session.setSelectedNodeId(null); // ノード選択を解除
-                player.sendMessage(ChatColor.GREEN + "アンカーを選択しました。右クリックで移動先を確定します。");
+                PlayerMessageUtil.sendTranslatedMessage(plugin, player, "route_edit.anchor_selected");
                 updateRoute(player, session); // マーカーの表示更新
             }
         }
@@ -233,7 +235,7 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
         ItemStack item = player.getInventory().getItem(event.getPreviousSlot());
         if (item == null || item.getType() != Material.BLAZE_ROD || !item.hasItemMeta()) return; // ロードブラシを持っていなければ何もしない
         ItemMeta meta = item.getItemMeta();
-        if (meta == null || !meta.getDisplayName().equals(ChatColor.GOLD + "道路ブラシ (Road Brush)")) return;
+        if (meta == null || !meta.getPersistentDataContainer().has(new NamespacedKey(plugin, "road_brush"), PersistentDataType.STRING)) return;
 
         RouteSession session = plugin.getRouteSession(player.getUniqueId());
 
@@ -252,7 +254,7 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
             }
 
             session.setCurrentAnchorEditMode(newMode);
-            player.sendMessage(ChatColor.AQUA + "アンカー編集モードを " + newMode.name() + " に変更しました。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "route_edit.anchor_edit_mode_changed", newMode.name());
             sendActionBar(player, session); // アクションバーを更新
             updateRoute(player, session);
             event.setCancelled(true); // ホットバーの切り替えをキャンセル
@@ -274,7 +276,7 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
             }
 
             session.setCurrentEdgeMode(newMode);
-            player.sendMessage(ChatColor.AQUA + "エッジモードを " + newMode.name() + " に変更しました。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "route_edit.edge_mode_changed", newMode.name());
             sendActionBar(player, session); // アクションバーを更新
             updateRoute(player, session);
             event.setCancelled(true); // ホットバーの切り替えをキャンセル
@@ -291,7 +293,7 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
         // ロードブラシを持っていなければ何もしない
         if (item == null || item.getType() != Material.BLAZE_ROD || !item.hasItemMeta()) return;
         ItemMeta meta = item.getItemMeta();
-        if (meta == null || !meta.getDisplayName().equals(ChatColor.GOLD + "道路ブラシ (Road Brush)")) return;
+        if (meta == null || !meta.getPersistentDataContainer().has(new NamespacedKey(plugin, "road_brush"), PersistentDataType.STRING)) return;
 
         // Shiftキーを押しながら左クリックしている場合
         if (player.isSneaking()) {
@@ -330,7 +332,7 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
                     }
                     return false;
                 });
-                player.sendMessage(ChatColor.YELLOW + "ノードを削除しました。");
+                PlayerMessageUtil.sendTranslatedMessage(plugin, player, "route_edit.node_deleted");
                 // 削除されたノードの元のブロックをプレイヤーに送信して復元
                 plugin.getServer().getScheduler().runTaskLater(plugin,()->player.sendBlockChange(nodeToRemove.getLocation(), nodeToRemove.getLocation().getBlock().getBlockData()),1L);
                 updateRoute(player, session);
@@ -339,12 +341,12 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
             // --- ノード選択/選択解除処理 ---
             if (nearestNodeId.equals(session.getSelectedNodeId())) {
                 session.setSelectedNodeId(null); // 選択解除
-                player.sendMessage(ChatColor.GRAY + "ノードの選択を解除しました。");
+                PlayerMessageUtil.sendTranslatedMessage(plugin, player, "route_edit.node_deselected");
                 updateRoute(player, session); // パスを元の状態に戻す
             } else {
                 session.setSelectedNodeId(nearestNodeId); // 選択
                 session.setSelectedAnchorId(null); // アンカー選択を解除
-                player.sendMessage(ChatColor.GREEN + "ノードを選択しました。右クリックで移動先を確定します。");
+                PlayerMessageUtil.sendTranslatedMessage(plugin, player, "route_edit.node_selected");
                 updateRoute(player, session); // マーカーの表示更新
             }
         }
@@ -367,7 +369,7 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
                 // ノードは常にブロックの中心にスナップ
                 nodeToMove.setLocation(interactionLocation.getBlock().getLocation().add(0.5, 0.5, 0.5));
                 session.setSelectedNodeId(null); // 選択解除
-                player.sendMessage(ChatColor.GREEN + "ノードを移動しました。");
+                PlayerMessageUtil.sendTranslatedMessage(plugin, player, "route_edit.node_moved");
                 updateRoute(player, session);
                 return true;
             }
@@ -383,7 +385,7 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
             if (nearestNodeId != null) {
                 // 既存のノードを右クリック -> 分岐始点として選択
                 session.setBranchStartNodeId(nearestNodeId);
-                player.sendMessage(ChatColor.AQUA + "分岐の始点を選択しました。次のノードを右クリックして接続してください。");
+                PlayerMessageUtil.sendTranslatedMessage(plugin, player, "route_edit.branch_start_selected");
                 sendActionBar(player, session); // 接続モードに入ったのでアクションバー表示
                 updateRoute(player, session); // マーカーの表示更新
                 return true;
@@ -392,7 +394,10 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
                 // ノードは常にブロックの中心にスナップ
                 RouteNode newNode = new RouteNode(interactionLocation.getBlock().getLocation().add(0.5, 0.5, 0.5));
                 session.addNode(newNode);
-                player.sendMessage(ChatColor.GREEN + (session.getNodes().size() == 1 ? "最初のノード" : "新しいノード") + "を作成しました。");
+                String nodeType = session.getNodes().size() == 1 ?
+                    plugin.getMessageManager().getMessage("route_edit.first_node_created") :
+                    plugin.getMessageManager().getMessage("route_edit.new_node_created");
+                PlayerMessageUtil.sendTranslatedMessage(plugin, player, "route_edit.node_created", nodeType);
                 updateRoute(player, session); // マーカーの表示更新
                 return true;
             }
@@ -426,7 +431,7 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
                     if (existingEdge.getCurveAnchor() != null) {
                         session.removeAnchor(existingEdge.getCurveAnchor().getId()); // 関連アンカーも削除
                     }
-                    player.sendMessage(ChatColor.YELLOW + "既存の接続を削除しました。");
+                    PlayerMessageUtil.sendTranslatedMessage(plugin, player, "route_edit.existing_connection_deleted");
                 } else {
                     RouteEdge newEdge = new RouteEdge(startNode, endNode, session.getCurrentEdgeMode());
                     // ARCまたはCLOTHOIDモードの場合、アンカーを自動生成
@@ -435,9 +440,9 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
                         CurveAnchor newAnchor = new CurveAnchor(getAnchorPlacementLocation(midPoint)); // ヘルパーメソッドを使用
                         session.addAnchor(newAnchor);
                         newEdge.setCurveAnchor(newAnchor);
-                        player.sendMessage(ChatColor.GREEN + "ノードを接続し、アンカーを作成しました。モード: " + session.getCurrentEdgeMode().name());
+                        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "route_edit.nodes_connected_with_anchor", session.getCurrentEdgeMode().name());
                     } else {
-                        player.sendMessage(ChatColor.GREEN + "ノードを接続しました。モード: " + session.getCurrentEdgeMode().name());
+                        PlayerMessageUtil.sendTranslatedMessage(plugin, player, "route_edit.nodes_connected", session.getCurrentEdgeMode().name());
                     }
                     session.addEdge(newEdge);
                 }
@@ -446,7 +451,7 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
                 updateRoute(player, session);
                 return true;
             } else {
-                player.sendMessage(ChatColor.RED + "同じノードには接続できません。");
+                PlayerMessageUtil.sendTranslatedMessage(plugin, player, "route_edit.cannot_connect_same_node");
                 session.setBranchStartNodeId(null); // 接続失敗でも分岐始点をリセット
                 PlayerMessageUtil.clearActionBar(player); // アクションバーをクリア
                 updateRoute(player, session);
@@ -491,7 +496,7 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
 
             session.addEdge(newEdge1);
             session.addEdge(newEdge2);
-            player.sendMessage(ChatColor.AQUA + "経路上に新しい中継点を追加しました。");
+            PlayerMessageUtil.sendTranslatedMessage(plugin, player, "route_edit.waypoint_added");
             updateRoute(player, session);
         }
     }
@@ -588,11 +593,11 @@ public class RouteEditListener extends BukkitRunnable implements Listener {
         if (session.getSelectedAnchorId() != null) {
             // アンカーが選択されている場合、アンカー編集モードを表示
             String modeName = session.getCurrentAnchorEditMode().name();
-            message = ChatColor.GOLD + "アンカー編集モード: " + ChatColor.LIGHT_PURPLE + modeName;
+            message = plugin.getMessageManager().getMessage("route_edit.anchor_edit_mode_display", modeName);
         } else if (session.getBranchStartNodeId() != null) {
             // ノード接続モードの場合、エッジモードを表示
             String modeName = session.getCurrentEdgeMode().name();
-            message = ChatColor.GOLD + "現在のエッジモード: " + ChatColor.AQUA + modeName;
+            message = plugin.getMessageManager().getMessage("route_edit.current_edge_mode_display", modeName);
         }
 
         PlayerMessageUtil.sendActionBar(player, message);

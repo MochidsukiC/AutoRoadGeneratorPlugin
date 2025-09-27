@@ -15,7 +15,13 @@
       "Read(//c/Users/dora2/Documents/Minecraft/minecraft server/paper-1.20.1/plugins/RoadEditor/presets/**)",
       "Bash(git checkout:*)",
       "Read(//c/Users/dora2/Documents/Minecraft/minecraft server/paper-1.20.1/plugins/AutoRoadGeneratorPlugin/debug/**)",
-      "Read(//c/Users/dora2/Documents/Minecraft/minecraft server/paper-1.20.1/logs/**)"
+      "Read(//c/Users/dora2/Documents/Minecraft/minecraft server/paper-1.20.1/logs/**)",
+      "Read(//c/Users/dora2/Documents/Minecraft/minecraft server/paper-1.20.1/plugins/AutoRoadGeneratorPlugin/preset/road/**)",
+      "Bash(/usr/bin/mvn:*)",
+      "Read(//c/Users/dora2/**)",
+      "Bash(\"C:\\Users\\dora2\\.m2\\wrapper\\dists\\apache-maven-3.8.5-bin\\5i5jha092a3i37g0paqnfr15e0\\apache-maven-3.8.5\\bin\\mvn.cmd\" compile)",
+      "Bash(\"C:\\Users\\dora2\\.m2\\wrapper\\dists\\apache-maven-3.8.5-bin\\5i5jha092a3i37g0paqnfr15e0\\apache-maven-3.8.5\\bin\\mvn.cmd\" clean package)",
+      "Bash(unzip:*)"
     ],
     "deny": [],
     "ask": []

@@ -108,6 +108,7 @@ edit:
   mode_enabled: "編集モードを開始しました。"
   mode_disabled: "編集モードを終了しました。"
   brush_name: "§6道路ブラシ"
+  road_brush_name: "§6道路ブラシ (Road Brush)"
   brush_usage: "§eクリックした地点をルートに追加します。"
 
 # 元に戻すコマンド関連
@@ -127,12 +128,37 @@ preset:
   different_worlds: "すべての選択座標は同じワールド内にある必要があります。"
   path_generation_failed: "中心軸のパスを生成できませんでした。"
 
+# ログメッセージ
+log:
+  preset_save_call: "savePreset呼び出し: {0} (スライス数: {1})"
+  save_slice_preset_start: "saveSliceBasedPreset開始: {0} (スライス数: {1})"
+  cache_save_check: "キャッシュ保存前チェック: {0} スライス数={1}"
+  slice_details: "  スライス[{0}]: xPos={1} ブロック数={2}"
+  preset_saved_cache: "Preset '{0}' saved successfully (slice-based format). キャッシュに保存完了."
+  preset_loaded_cache: "loadPreset: キャッシュから読み込み '{0}' (スライス数: {1}) [CACHED]"
+  cached_slice_details: "  [CACHED] 最初のスライス詳細: widthZ={0}, heightY={1}, ブロック数={2}"
+  preset_loaded_file: "Preset '{0}' loaded successfully ({1} format). ファイルから読み込みキャッシュに保存. スライス数: {2} [FILE-LOADED]"
+  file_slice_details: "  [FILE-LOADED] 最初のスライス詳細: widthZ={0}, heightY={1}, ブロック数={2}"
+  connection_delete_error: "接続データ削除中にエラー: {0}"
+  path_chunk_processing_failed: "Path chunk processing failed for edge {0}: {1}"
+  failed_create_block_data: "Failed to create block data in final conversion: '{0}'"
+  error_message: "Error: {0}"
+  source_location: "Source location: ({0}, {1}, {2})"
+  yaw_slice_preset: "Yaw: {0}°, Slice: {1}, PresetZ: {2}"
+  unknown_build_session: "BuildManager: Received canvas for an unknown build session: {0}"
+  unknown_preset_format: "Unknown preset format: {0}"
+  preset_loaded_as: "Preset '{0}' loaded as {1}"
+  unknown_preset_type: "Unknown preset type: {0}"
+  road_preset_saved: "RoadPreset '{0}' saved successfully."
+  object_preset_saved: "ObjectPreset '{0}' saved successfully."
+
 # エラーメッセージ
 error:
   file_not_found: "ファイルが見つかりません: {0}"
-  save_failed: "保存に失敗しました: {0}"
-  load_failed: "読み込みに失敗しました: {0}"
-  invalid_coordinates: "座標が無効です。"
+  save_failed: "保存に失敗しました: {0} - {1}"
+  load_failed: "読み込みに失敗しました: {0} - {1}"
+  invalid_coordinates: "座標が無効です"
+  invalid_block_data: "プリセット '{0}' の無効なブロックデータ: {1}"
   world_mismatch: "ワールドが一致しません。"
 
 # 言語関連
@@ -147,3 +173,41 @@ language:
 plugin:
   enabled: "RoadEditor plugin has been enabled."
   disabled: "RoadEditor plugin has been disabled."
+
+# ルート編集関連
+route_edit:
+  anchor_moved: "§aアンカーを移動しました。"
+  anchor_deleted: "§eアンカーを削除しました。エッジは直線になります。"
+  anchor_deselected: "§7アンカーの選択を解除しました。"
+  anchor_selected: "§aアンカーを選択しました。右クリックで移動先を確定します。"
+  anchor_edit_mode_changed: "§bアンカー編集モードを {0} に変更しました。"
+  edge_mode_changed: "§bエッジモードを {0} に変更しました。"
+  node_deleted: "§eノードを削除しました。"
+  node_deselected: "§7ノードの選択を解除しました。"
+  node_selected: "§aノードを選択しました。右クリックで移動先を確定します。"
+  node_moved: "§aノードを移動しました。"
+  branch_start_selected: "§b分岐の始点を選択しました。次のノードを右クリックして接続してください。"
+  first_node_created: "最初のノード"
+  new_node_created: "新しいノード"
+  node_created: "ノードを作成しました。"
+  existing_connection_deleted: "§e既存の接続を削除しました。"
+  nodes_connected_with_anchor: "§aノードを接続し、アンカーを作成しました。モード: {0}"
+  nodes_connected: "§aノードを接続しました。モード: {0}"
+  cannot_connect_same_node: "§c同じノードには接続できません。"
+  waypoint_added: "§b経路上に新しい中継点を追加しました。"
+  anchor_edit_mode_display: "§6アンカー編集モード: §d{0}"
+  current_edge_mode_display: "§6現在のエッジモード: §b{0}"
+
+# ビルド関連
+build:
+  calculation_complete: "§a全道路の計算が完了しました。ブロック配置を統合・最適化しています..."
+  air_mode_text: "§7 (空気ブロックのみ設置)"
+  integration_complete: "§a統合完了! §e{0}§aブロックの設置を開始します{1}"
+  construction_complete: "§a道路の建築が完了しました！ §7(合計 §e{0} §7ブロック)"
+  eta_seconds: "§7 ETA: §e{0}§7秒"
+  eta_minutes: "§7 ETA: §e{0}§7分§e{1}§7秒"
+  eta_soon: "§a ETA: まもなく完了"
+  air_mode_only: "§7 (空気ブロックのみ)"
+  placement_progress: "§b設置進行: §e{0}% §7({1}/{2}){3}{4}"
+  integrating_wall: "§aIntegrating wall sections..."
+  wall_integration_complete: "§aIntegration complete! Placing §e{0} §ablocks{1}"

@@ -1,6 +1,6 @@
 package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands;
 
-import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.*;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.BlockRotationUtil;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build.BlockPlacementInfo;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build.BuildHistoryManager;
@@ -9,9 +9,11 @@ import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.roadObjects.ObjectCre
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.roadObjects.ObjectPreset;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.roadObjects.ObjectPresetManager;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteSession;
-import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.*;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.PlayerMessageUtil;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.StringBlockRotationUtil;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.command.Command;
@@ -21,13 +23,34 @@ import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.StringUtil;
 import org.bukkit.util.Vector;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Queue;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class RobjCommand implements CommandExecutor, TabCompleter {
+
+    // 定数定義
+    /** デフォルトのオブジェクト配置間隔（ブロック） */
+    private static final double DEFAULT_PLACEMENT_INTERVAL = 10.0;
+    /** 90度回転の基準角度 */
+    private static final double QUARTER_TURN_DEGREES = 90.0;
+    /** 完全回転の角度（360度） */
+    private static final int FULL_ROTATION_DEGREES = 360;
+    /** 方向ベクトルの最小長さ閾値 */
+    private static final double MIN_DIRECTION_LENGTH = 0.001;
+    /** 位置変化の最小距離閾値 */
+    private static final double MIN_POSITION_CHANGE = 0.0001;
 
     private final AutoRoadGeneratorPluginMain plugin;
     private final Map<UUID, ObjectCreationSession> creationSessions;
@@ -87,7 +110,7 @@ public class RobjCommand implements CommandExecutor, TabCompleter {
             }
         } else if (args.length > 2 && args[0].equalsIgnoreCase("place")) {
             if (args[args.length - 1].startsWith("--")) {
-                return StringUtil.copyPartialMatches(args[args.length - 1], Arrays.asList("--interval", "--offset", "--rotate", "--flip"), new ArrayList<>());
+                return StringUtil.copyPartialMatches(args[args.length - 1], Arrays.asList("--interval", "--offset", "--rotate", "--flip", "--noupdateblockdata"), new ArrayList<>());
             }
         }
         return Collections.emptyList();
@@ -106,6 +129,8 @@ public class RobjCommand implements CommandExecutor, TabCompleter {
         ItemMeta meta = brush.getItemMeta();
         if (meta != null) {
             meta.setDisplayName(plugin.getMessageManager().getMessage(player, "object.brush_name"));
+            PersistentDataContainer data = meta.getPersistentDataContainer();
+            data.set(new NamespacedKey(plugin, "brush_type"), PersistentDataType.STRING, "object_creation_brush");
             brush.setItemMeta(meta);
         }
         player.getInventory().addItem(brush);
@@ -127,8 +152,8 @@ public class RobjCommand implements CommandExecutor, TabCompleter {
         World world = start.getWorld();
 
         float yaw = player.getLocation().getYaw();
-        int initialYaw = (int) (Math.round(yaw / 90.0) * 90) % 360;
-        if (initialYaw < 0) initialYaw += 360;
+        int initialYaw = (int) (Math.round(yaw / QUARTER_TURN_DEGREES) * QUARTER_TURN_DEGREES) % FULL_ROTATION_DEGREES;
+        if (initialYaw < 0) initialYaw += FULL_ROTATION_DEGREES;
 
         int minX = Math.min(start.getBlockX(), end.getBlockX());
         int minY = Math.min(start.getBlockY(), end.getBlockY());
@@ -173,10 +198,11 @@ public class RobjCommand implements CommandExecutor, TabCompleter {
         }
 
         String presetName = args[1];
-        double interval = 10.0;
+        double interval = DEFAULT_PLACEMENT_INTERVAL;
         Vector offset = new Vector(0, 0, 0);
         float rotation = 0f;
         String flipAxis = "";
+        boolean updateBlockData = true;
 
         try {
             for (int i = 2; i < args.length; i++) {
@@ -194,6 +220,9 @@ public class RobjCommand implements CommandExecutor, TabCompleter {
                     case "--flip":
                         flipAxis = args[++i].toLowerCase();
                         if (!flipAxis.equals("x") && !flipAxis.equals("z")) throw new IllegalArgumentException("Invalid flip axis");
+                        break;
+                    case "--noupdateblockdata":
+                        updateBlockData = false;
                         break;
                 }
             }
@@ -226,13 +255,16 @@ public class RobjCommand implements CommandExecutor, TabCompleter {
 
             if (distanceSinceLast >= interval) {
                 Location pathPoint = path.get(i);
-                float pathYaw = pathPoint.getYaw();
+
+                // Calculate direction vector like in road/wall systems
+                Vector direction = calculateDirectionVector(path, i);
+                double pathYaw = Math.toDegrees(Math.atan2(-direction.getX(), direction.getZ()));
 
                 Vector tangent = new Vector(Math.cos(Math.toRadians(pathYaw)), 0, Math.sin(Math.toRadians(pathYaw)));
                 Vector up = new Vector(0, 1, 0);
-                Vector normal = new Vector(Math.cos(Math.toRadians(pathYaw + 90)), 0, Math.sin(Math.toRadians(pathYaw + 90)));
+                Vector normal = new Vector(Math.cos(Math.toRadians(pathYaw + QUARTER_TURN_DEGREES)), 0, Math.sin(Math.toRadians(pathYaw + QUARTER_TURN_DEGREES)));
 
-                float totalYaw = pathYaw + rotation;
+                double totalYaw = pathYaw + rotation;
 
                 for (Map.Entry<Vector, BlockData> entry : preset.getBlocks().entrySet()) {
                     Vector canonicalPos = entry.getKey().clone();
@@ -249,6 +281,7 @@ public class RobjCommand implements CommandExecutor, TabCompleter {
 
                     Location blockLocation = pathPoint.clone().add(worldDisplacement);
 
+                    // Rotate block data by total rotation (path direction + user rotation)
                     BlockData rotatedBlockData = BlockRotationUtil.rotateBlockData(entry.getValue().clone(), Math.toRadians(totalYaw));
 
                     originalBlocks.add(new BlockPlacementInfo(blockLocation, blockLocation.getBlock().getBlockData()));
@@ -260,12 +293,38 @@ public class RobjCommand implements CommandExecutor, TabCompleter {
 
         BuildHistoryManager.addBuildHistory(player.getUniqueId(), originalBlocks);
         Queue<BlockPlacementInfo> placementQueue = new ConcurrentLinkedQueue<>(worldBlocks);
-        new BuildPlacementTask(plugin, player.getUniqueId(), placementQueue, false, true).runTaskTimer(plugin, 1, 1); // Default to block update enabled
+        new BuildPlacementTask(plugin, player.getUniqueId(), placementQueue, false, updateBlockData).runTaskTimer(plugin, 1, 1);
 
         PlayerMessageUtil.sendTranslatedMessage(plugin, player, "object.placing_objects");
     }
 
     private String formatLocation(Player player, Location loc) {
         return plugin.getMessageManager().getMessage(player, "location.format", loc.getBlockX(), loc.getBlockY(), loc.getBlockZ());
+    }
+
+    private Vector calculateDirectionVector(List<Location> path, int index) {
+        if (path.size() < 2) return new Vector(1, 0, 0);
+        Vector direction;
+        if (index == 0) {
+            direction = path.get(1).toVector().subtract(path.get(0).toVector());
+        } else if (index == path.size() - 1) {
+            direction = path.get(index).toVector().subtract(path.get(index - 1).toVector());
+        } else {
+            Vector incoming = path.get(index).toVector().subtract(path.get(index - 1).toVector());
+            Vector outgoing = path.get(index + 1).toVector().subtract(path.get(index).toVector());
+            if (incoming.length() > MIN_DIRECTION_LENGTH) incoming.normalize();
+            if (outgoing.length() > MIN_DIRECTION_LENGTH) outgoing.normalize();
+            direction = incoming.add(outgoing).multiply(0.5);
+        }
+        if (direction.length() < MIN_DIRECTION_LENGTH) {
+            if (index > 0 && path.get(index).distanceSquared(path.get(index - 1)) > MIN_POSITION_CHANGE) {
+                return path.get(index).toVector().subtract(path.get(index - 1).toVector()).normalize();
+            } else if (path.size() > index + 1 && path.get(index + 1).distanceSquared(path.get(index)) > MIN_POSITION_CHANGE) {
+                return path.get(index + 1).toVector().subtract(path.get(index).toVector()).normalize();
+            } else {
+                return new Vector(1, 0, 0);
+            }
+        }
+        return direction.normalize();
     }
 }

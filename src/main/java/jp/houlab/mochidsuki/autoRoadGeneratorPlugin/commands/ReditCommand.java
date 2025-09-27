@@ -5,6 +5,7 @@ import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteSession;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteVisualizer;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.PlayerMessageUtil;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -12,6 +13,7 @@ import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.StringUtil;
 
 import java.util.ArrayList;
@@ -78,8 +80,10 @@ public class ReditCommand implements CommandExecutor, TabCompleter {
         ItemMeta meta = brush.getItemMeta();
 
         if (meta != null) {
-            meta.setDisplayName(plugin.getMessageManager().getMessage("edit.brush_name"));
+            meta.setDisplayName(plugin.getMessageManager().getMessage("edit.road_brush_name"));
             meta.setLore(Collections.singletonList(plugin.getMessageManager().getMessage("edit.brush_usage")));
+            // NBTタグでアイテムを識別
+            meta.getPersistentDataContainer().set(new NamespacedKey(plugin, "road_brush"), PersistentDataType.STRING, "true");
             brush.setItemMeta(meta);
         }
 

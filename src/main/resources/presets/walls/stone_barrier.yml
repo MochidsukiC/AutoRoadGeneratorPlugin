@@ -1,0 +1,19 @@
+# Stone Barrier Wall Preset
+# A simple stone wall barrier for roads
+# 道路用のシンプルな石の壁バリア
+
+name: stone_barrier
+lengthX: 1
+widthZ: 1
+heightY: 2
+axisZOffset: 0
+axisYOffset: 0
+slices:
+  - xPosition: 0
+    blocks:
+      - z: 0
+        y: 0
+        blockString: "minecraft:cobblestone_wall"
+      - z: 0
+        y: 1
+        blockString: "minecraft:cobblestone_wall"

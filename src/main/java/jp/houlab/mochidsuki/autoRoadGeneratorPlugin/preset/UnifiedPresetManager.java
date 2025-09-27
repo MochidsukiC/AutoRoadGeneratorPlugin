@@ -1,23 +1,29 @@
 package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset;
 
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.roadObjects.ObjectPreset;
 import org.bukkit.Bukkit;
+import org.bukkit.block.data.BlockData;
 import org.bukkit.configuration.file.YamlConfiguration;
-import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.util.Vector;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Road と Object プリセットを統一管理するマネージャー
  */
 public class UnifiedPresetManager {
 
-    private final JavaPlugin plugin;
+    private final AutoRoadGeneratorPluginMain plugin;
     private final File presetsFolder;
     private final Map<String, PresetData> loadedPresets = new HashMap<>();
 
-    public UnifiedPresetManager(JavaPlugin plugin) {
+    public UnifiedPresetManager(AutoRoadGeneratorPluginMain plugin) {
         this.plugin = plugin;
         this.presetsFolder = new File(plugin.getDataFolder(), "presets");
         if (!presetsFolder.exists()) {
@@ -35,7 +41,7 @@ public class UnifiedPresetManager {
 
         File presetFile = new File(presetsFolder, name + ".yml");
         if (!presetFile.exists()) {
-            plugin.getLogger().warning("Preset '" + name + "' not found.");
+            plugin.getLogger().warning(plugin.getMessageManager().getMessage("road.preset_not_found", name));
             return null;
         }
 
@@ -44,24 +50,24 @@ public class UnifiedPresetManager {
 
         try {
             // プリセットタイプを判別
-            if (config.contains("placements")) {
+            if (config.contains("blocks") && config.contains("initialYaw")) {
                 // Object preset
                 preset = loadObjectPreset(config);
             } else if (config.contains("lengthX") || config.contains("slices")) {
                 // Road preset
                 preset = loadRoadPreset(config);
             } else {
-                plugin.getLogger().warning("Unknown preset format: " + name);
+                plugin.getLogger().warning(plugin.getMessageManager().getMessage("log.unknown_preset_format", name));
                 return null;
             }
 
             if (preset != null) {
                 loadedPresets.put(name, preset);
-                plugin.getLogger().info("Preset '" + name + "' loaded as " + preset.getType());
+                plugin.getLogger().info(plugin.getMessageManager().getMessage("log.preset_loaded_as", name, preset.getType()));
             }
 
         } catch (Exception e) {
-            plugin.getLogger().severe("Failed to load preset '" + name + "': " + e.getMessage());
+            plugin.getLogger().severe(plugin.getMessageManager().getMessage("error.load_failed", name, e.getMessage()));
             e.printStackTrace();
         }
 
@@ -101,9 +107,9 @@ public class UnifiedPresetManager {
                             slice.setBlockString(z, y, blockDataString);
                             slice.setBlock(z, y, Bukkit.createBlockData(blockDataString));
                         } catch (NumberFormatException e) {
-                            plugin.getLogger().warning("Invalid coordinate format: " + entry.getKey());
+                            plugin.getLogger().warning(plugin.getMessageManager().getMessage("error.invalid_coordinates") + ": " + entry.getKey());
                         } catch (IllegalArgumentException e) {
-                            plugin.getLogger().warning("Invalid block data: " + entry.getValue());
+                            plugin.getLogger().warning(plugin.getMessageManager().getMessage("error.invalid_block_data", "unknown", entry.getValue()));
                         }
                     }
                 }
@@ -120,24 +126,40 @@ public class UnifiedPresetManager {
      */
     private ObjectPreset loadObjectPreset(YamlConfiguration config) {
         String presetName = config.getString("name");
-        List<ObjectPreset.BlockPlacement> placements = new ArrayList<>();
+        int initialYaw = config.getInt("initialYaw", 0);
 
-        if (config.contains("placements")) {
-            List<Map<?, ?>> placementList = config.getMapList("placements");
-            for (Map<?, ?> placementMap : placementList) {
-                int x = (Integer) placementMap.get("x");
-                int y = (Integer) placementMap.get("y");
-                int z = (Integer) placementMap.get("z");
-                String blockData = (String) placementMap.get("blockData");
-                Object modeObj = placementMap.get("mode");
-                String modeStr = modeObj != null ? modeObj.toString() : "REPLACE";
+        Map<Vector, BlockData> blocks = new HashMap<>();
+        Vector dimensions = new Vector(0, 0, 0);
 
-                ObjectPreset.PlacementMode mode = ObjectPreset.PlacementMode.valueOf(modeStr);
-                placements.add(new ObjectPreset.BlockPlacement(x, y, z, blockData, mode));
+        if (config.contains("blocks")) {
+            Map<String, Object> blockData = config.getConfigurationSection("blocks").getValues(false);
+            for (Map.Entry<String, Object> entry : blockData.entrySet()) {
+                String[] coords = entry.getKey().split(",");
+                if (coords.length == 3) {
+                    try {
+                        double x = Double.parseDouble(coords[0]);
+                        double y = Double.parseDouble(coords[1]);
+                        double z = Double.parseDouble(coords[2]);
+                        String blockDataString = String.valueOf(entry.getValue());
+
+                        Vector position = new Vector(x, y, z);
+                        BlockData blockDataObj = Bukkit.createBlockData(blockDataString);
+                        blocks.put(position, blockDataObj);
+
+                        // dimensions を更新
+                        dimensions = new Vector(
+                            Math.max(dimensions.getX(), Math.abs(x)),
+                            Math.max(dimensions.getY(), Math.abs(y)),
+                            Math.max(dimensions.getZ(), Math.abs(z))
+                        );
+                    } catch (Exception e) {
+                        plugin.getLogger().warning(plugin.getMessageManager().getMessage("error.invalid_coordinates") + ": " + entry.getKey());
+                    }
+                }
             }
         }
 
-        return new ObjectPreset(presetName, placements);
+        return new ObjectPreset(presetName, blocks, initialYaw, dimensions);
     }
 
     /**
@@ -149,7 +171,7 @@ public class UnifiedPresetManager {
         } else if (preset instanceof ObjectPreset) {
             saveObjectPreset((ObjectPreset) preset);
         } else {
-            plugin.getLogger().warning("Unknown preset type: " + preset.getClass().getSimpleName());
+            plugin.getLogger().warning(plugin.getMessageManager().getMessage("log.unknown_preset_type", preset.getClass().getSimpleName()));
         }
     }
 
@@ -188,9 +210,9 @@ public class UnifiedPresetManager {
         try {
             config.save(presetFile);
             loadedPresets.put(preset.getName(), preset);
-            plugin.getLogger().info("RoadPreset '" + preset.getName() + "' saved successfully.");
+            plugin.getLogger().info(plugin.getMessageManager().getMessage("log.road_preset_saved", preset.getName()));
         } catch (IOException e) {
-            plugin.getLogger().severe("Could not save RoadPreset: " + e.getMessage());
+            plugin.getLogger().severe(plugin.getMessageManager().getMessage("error.save_failed", "RoadPreset", e.getMessage()));
         }
     }
 
@@ -203,25 +225,22 @@ public class UnifiedPresetManager {
 
         config.set("name", preset.getName());
         config.set("type", "OBJECT");
+        config.set("initialYaw", preset.getInitialYaw());
 
-        List<Map<String, Object>> placementList = new ArrayList<>();
-        for (ObjectPreset.BlockPlacement placement : preset.getPlacements()) {
-            Map<String, Object> placementMap = new HashMap<>();
-            placementMap.put("x", placement.getX());
-            placementMap.put("y", placement.getY());
-            placementMap.put("z", placement.getZ());
-            placementMap.put("blockData", placement.getBlockDataString());
-            placementMap.put("mode", placement.getMode().name());
-            placementList.add(placementMap);
+        // blocksセクションにブロック情報を保存
+        for (Map.Entry<Vector, BlockData> entry : preset.getBlocks().entrySet()) {
+            Vector pos = entry.getKey();
+            BlockData blockData = entry.getValue();
+            String key = pos.getX() + "," + pos.getY() + "," + pos.getZ();
+            config.set("blocks." + key, blockData.getAsString());
         }
-        config.set("placements", placementList);
 
         try {
             config.save(presetFile);
             loadedPresets.put(preset.getName(), preset);
-            plugin.getLogger().info("ObjectPreset '" + preset.getName() + "' saved successfully.");
+            plugin.getLogger().info(plugin.getMessageManager().getMessage("log.object_preset_saved", preset.getName()));
         } catch (IOException e) {
-            plugin.getLogger().severe("Could not save ObjectPreset: " + e.getMessage());
+            plugin.getLogger().severe(plugin.getMessageManager().getMessage("error.save_failed", "ObjectPreset", e.getMessage()));
         }
     }
 

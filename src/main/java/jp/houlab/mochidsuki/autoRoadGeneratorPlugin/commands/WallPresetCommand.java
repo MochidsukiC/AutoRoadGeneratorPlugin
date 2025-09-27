@@ -2,13 +2,16 @@ package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands;
 
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build.WallCalculationTask;
-import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.*;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.WallCreationSession;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.WallPreset;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.WallPresetManager;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteEdge;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteSession;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.BlockRotationUtil;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.PlayerMessageUtil;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.block.Block;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.command.Command;
@@ -18,10 +21,19 @@ import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.StringUtil;
 import org.bukkit.util.Vector;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
 
 public class WallPresetCommand implements CommandExecutor, TabCompleter {
     private final AutoRoadGeneratorPluginMain plugin;
@@ -136,13 +148,15 @@ public class WallPresetCommand implements CommandExecutor, TabCompleter {
         ItemStack wallBrush = new ItemStack(Material.STONE_AXE);
         ItemMeta wallMeta = wallBrush.getItemMeta();
         if (wallMeta != null) {
-            wallMeta.setDisplayName(plugin.getMessageManager().getMessage("wall.brush_name"));
+            wallMeta.setDisplayName(plugin.getMessageManager().getMessage(player, "wall.brush_name"));
             wallMeta.setLore(Arrays.asList(
-                    plugin.getMessageManager().getMessage("wall.brush_lore1"),
-                    plugin.getMessageManager().getMessage("wall.brush_lore2"),
-                    plugin.getMessageManager().getMessage("wall.brush_lore3"),
-                    plugin.getMessageManager().getMessage("wall.brush_lore4")
+                    plugin.getMessageManager().getMessage(player, "wall.brush_lore1"),
+                    plugin.getMessageManager().getMessage(player, "wall.brush_lore2"),
+                    plugin.getMessageManager().getMessage(player, "wall.brush_lore3"),
+                    plugin.getMessageManager().getMessage(player, "wall.brush_lore4")
             ));
+            PersistentDataContainer data = wallMeta.getPersistentDataContainer();
+            data.set(new NamespacedKey(plugin, "brush_type"), PersistentDataType.STRING, "wall_brush");
             wallBrush.setItemMeta(wallMeta);
         }
         player.getInventory().addItem(wallBrush);
@@ -360,10 +374,10 @@ public class WallPresetCommand implements CommandExecutor, TabCompleter {
             return;
         }
 
-        String modeMessage = onlyAir ? plugin.getMessageManager().getMessage("wall.build_mode_air") : "";
-        String updateMessage = updateBlockData ? "" : plugin.getMessageManager().getMessage("wall.build_mode_no_update");
-        String xOffsetText = xOffset > 0 ? plugin.getMessageManager().getMessage("wall.build_offset_right") : (xOffset < 0 ? plugin.getMessageManager().getMessage("wall.build_offset_left") : plugin.getMessageManager().getMessage("wall.build_offset_center"));
-        String yOffsetText = yOffset != 0 ? ", Y=" + yOffset : "";
+        String modeMessage = onlyAir ? " " + plugin.getMessageManager().getMessage(player, "wall.build.mode.only_air") : "";
+        String updateMessage = !updateBlockData ? " " + plugin.getMessageManager().getMessage(player, "wall.build.mode.no_block_update") : "";
+        String xOffsetText = xOffset > 0 ? plugin.getMessageManager().getMessage(player, "wall.build.offset.right") : (xOffset < 0 ? plugin.getMessageManager().getMessage(player, "wall.build.offset.left") : plugin.getMessageManager().getMessage(player, "wall.build.offset.center"));
+        String yOffsetText = yOffset != 0 ? plugin.getMessageManager().getMessage(player, "wall.build.offset.y", yOffset) : "";
         PlayerMessageUtil.sendTranslatedMessage(plugin, player, "wall.building_started_details", presetName, xOffset, xOffsetText, yOffsetText, modeMessage, updateMessage);
 
         UUID buildId = UUID.randomUUID();

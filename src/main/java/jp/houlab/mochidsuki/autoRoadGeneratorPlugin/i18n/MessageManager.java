@@ -9,6 +9,17 @@ import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * 多言語対応メッセージの管理を行うマネージャークラス
+ *
+ * 言語ファイル（YAML）の読み込み・管理、プレイヤー固有の言語設定、
+ * メッセージの変数置換機能を提供します。
+ * サポート言語：日本語（ja）、英語（en）
+ *
+ * @author Mochidsuki
+ * @version 1.0.0
+ * @since 1.0.0
+ */
 public class MessageManager {
 
     private final Plugin plugin;

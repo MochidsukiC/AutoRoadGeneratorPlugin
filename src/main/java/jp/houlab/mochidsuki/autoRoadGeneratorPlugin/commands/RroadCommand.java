@@ -1,6 +1,6 @@
 package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.commands;
 
-import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.*;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build.BuildCalculationTask;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.PresetCreationSession;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.PresetManager;
@@ -11,6 +11,7 @@ import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.BlockRotationUtil;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.PlayerMessageUtil;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.block.Block;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.command.Command;
@@ -20,10 +21,19 @@ import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.StringUtil;
 import org.bukkit.util.Vector;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
 
 public class RroadCommand implements CommandExecutor, TabCompleter {
     private final AutoRoadGeneratorPluginMain plugin;
@@ -170,6 +180,8 @@ public class RroadCommand implements CommandExecutor, TabCompleter {
                     plugin.getMessageManager().getMessage(player, "road.brush_lore2"),
                     plugin.getMessageManager().getMessage(player, "road.brush_lore3")
             ));
+            PersistentDataContainer data = presetMeta.getPersistentDataContainer();
+            data.set(new NamespacedKey(plugin, "brush_type"), PersistentDataType.STRING, "road_preset_brush");
             presetBrush.setItemMeta(presetMeta);
         }
         player.getInventory().addItem(presetBrush);

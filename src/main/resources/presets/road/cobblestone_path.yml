@@ -1,0 +1,28 @@
+# Cobblestone Path Preset
+# A medieval-style cobblestone path with borders
+# 中世風の丸石の小道（境界線付き）
+
+name: cobblestone_path
+lengthX: 1
+widthZ: 5
+heightY: 1
+axisZOffset: 2
+axisYOffset: 0
+slices:
+  - xPosition: 0
+    blocks:
+      - z: 0
+        y: 0
+        blockString: "minecraft:mossy_cobblestone"
+      - z: 1
+        y: 0
+        blockString: "minecraft:cobblestone"
+      - z: 2
+        y: 0
+        blockString: "minecraft:cobblestone"
+      - z: 3
+        y: 0
+        blockString: "minecraft:cobblestone"
+      - z: 4
+        y: 0
+        blockString: "minecraft:mossy_cobblestone"

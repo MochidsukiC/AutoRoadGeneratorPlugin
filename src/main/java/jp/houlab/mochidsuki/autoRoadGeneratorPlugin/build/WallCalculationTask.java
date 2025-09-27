@@ -3,6 +3,7 @@ package jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.AutoRoadGeneratorPluginMain;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.WallPreset;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteSession;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.PlayerMessageUtil;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.util.StringBlockRotationUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -12,12 +13,25 @@ import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Queue;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class WallCalculationTask extends BukkitRunnable {
+
+    // 定数定義
+    /** 複雑な曲線での最大細分化数 */
+    private static final int MAX_COMPLEX_SUBDIVISIONS = 1000;
+    /** 単純な曲線での最大細分化数 */
+    private static final int MAX_SIMPLE_SUBDIVISIONS = 100;
+    /** 直角補正の角度（度） */
+    private static final double RIGHT_ANGLE_CORRECTION = 90.0;
 
     private final AutoRoadGeneratorPluginMain plugin;
     private final UUID playerUUID;
@@ -79,7 +93,7 @@ public class WallCalculationTask extends BukkitRunnable {
             double segmentDistance = current.distance(next);
             if (segmentDistance > maxSegmentDistance) {
                 int subdivisions = (int) Math.ceil(segmentDistance / maxSegmentDistance);
-                subdivisions = Math.min(subdivisions, 1000);
+                subdivisions = Math.min(subdivisions, MAX_COMPLEX_SUBDIVISIONS);
                 for (int j = 1; j < subdivisions; j++) {
                     double t = (double) j / subdivisions;
                     Location intermediate = current.clone().multiply(1 - t).add(next.toVector().multiply(t));
@@ -111,7 +125,7 @@ public class WallCalculationTask extends BukkitRunnable {
             if (segmentDistance > maxDistance) {
                 needsAnotherPass = true;
                 int subdivisions = (int) Math.ceil(segmentDistance / maxDistance);
-                subdivisions = Math.min(subdivisions, 100);
+                subdivisions = Math.min(subdivisions, MAX_SIMPLE_SUBDIVISIONS);
                 for (int j = 1; j <= subdivisions; j++) {
                     double t = (double) j / subdivisions;
                     Location intermediate = current.clone().multiply(1 - t).add(next.toVector().multiply(t));
@@ -215,7 +229,7 @@ public class WallCalculationTask extends BukkitRunnable {
                             Location blockLocation = pathPoint.clone().add(rightVector.clone().multiply(z)).add(upVector.clone().multiply(y + yOffset));
                             try {
                                 // Add 90 degrees correction like in road system
-                                double correctedYaw = yaw + 90.0;
+                                double correctedYaw = yaw + RIGHT_ANGLE_CORRECTION;
                                 String rotatedBlockDataString = StringBlockRotationUtil.rotateBlockDataString(blockDataString, Math.toRadians(correctedYaw));
                                 BlockData rotatedBlockData = Bukkit.createBlockData(rotatedBlockDataString);
                                 wallBlocks.put(blockLocation.getBlock().getLocation(), rotatedBlockData);
@@ -286,7 +300,7 @@ public class WallCalculationTask extends BukkitRunnable {
 
             Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
                 Player player = Bukkit.getPlayer(playerUUID);
-                if (player != null) player.sendMessage(ChatColor.YELLOW + "Integrating wall sections...");
+                if (player != null) PlayerMessageUtil.sendTranslatedMessage(plugin, player, "build.integrating_wall");
 
                 Map<Location, BlockData> mergedCanvas = new HashMap<>();
                 for (Map<Location, BlockData> canvas : session.values()) {
@@ -304,7 +318,7 @@ public class WallCalculationTask extends BukkitRunnable {
                 Bukkit.getScheduler().runTask(plugin, () -> {
                     if (player == null || !player.isOnline()) return;
                     String modeText = onlyAir ? " (Air Only)" : "";
-                    player.sendMessage(ChatColor.GREEN + "Integration complete! Placing " + worldBlocks.size() + " blocks" + modeText);
+                    PlayerMessageUtil.sendTranslatedMessage(plugin, player, "build.wall_integration_complete", worldBlocks.size(), modeText);
                     BuildHistoryManager.addBuildHistory(playerUUID, originalBlocks);
                     new BuildPlacementTask(plugin, playerUUID, new ConcurrentLinkedQueue<>(worldBlocks), onlyAir, updateBlockData).runTaskTimer(plugin, 1, 1);
                 });

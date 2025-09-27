@@ -13,9 +13,13 @@ import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.roadObjects.ObjectPre
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.WallCreationSession;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.WallListener;
 import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.WallPresetManager;
-import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.*;
-import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.*;
-import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.build.*;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.PresetCreationSession;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.PresetListener;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.preset.PresetManager;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteCalculator;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteEditListener;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteSession;
+import jp.houlab.mochidsuki.autoRoadGeneratorPlugin.route.RouteVisualizer;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
@@ -28,7 +32,20 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * プラグインのメインクラスです。
+ * AutoRoadGeneratorPluginのメインクラス
+ *
+ * 道路生成・編集機能を提供するプラグインのエントリーポイントです。
+ * 以下の機能を統合管理します：
+ * - 道路プリセットの作成・管理・建設
+ * - オブジェクトプリセットの配置システム
+ * - 壁建設システム
+ * - ルート編集・可視化システム
+ * - 多言語対応システム
+ * - 取り消し機能
+ *
+ * @author Mochidsuki
+ * @version 1.0.0
+ * @since 1.0.0
  */
 public class AutoRoadGeneratorPluginMain extends JavaPlugin {
 
@@ -87,9 +104,9 @@ public class AutoRoadGeneratorPluginMain extends JavaPlugin {
         getCommand("lang").setTabCompleter(langCommand);
 
         getServer().getPluginManager().registerEvents(routeEditListener, this);
-        getServer().getPluginManager().registerEvents(new PresetListener(playerSessions), this);
+        getServer().getPluginManager().registerEvents(new PresetListener(this,playerSessions), this);
         getServer().getPluginManager().registerEvents(new ObjectBrushListener(this, objectCreationSessions), this);
-        getServer().getPluginManager().registerEvents(new WallListener(wallCreationSessions), this);
+        getServer().getPluginManager().registerEvents(new WallListener(this, wallCreationSessions), this);
 
         this.routeEditTask = routeEditListener.runTaskTimerAsynchronously(this, 0L, 5L);
 
