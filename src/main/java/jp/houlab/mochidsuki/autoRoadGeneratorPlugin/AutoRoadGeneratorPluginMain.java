@@ -108,7 +108,7 @@ public class AutoRoadGeneratorPluginMain extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new ObjectBrushListener(this, objectCreationSessions), this);
         getServer().getPluginManager().registerEvents(new WallListener(this, wallCreationSessions), this);
 
-        this.routeEditTask = routeEditListener.runTaskTimerAsynchronously(this, 0L, 5L);
+        this.routeEditTask = routeEditListener.runTaskTimer(this, 0L, 20L);
 
         getLogger().info(messageManager.getMessage("plugin.enabled"));
     }

@@ -6,7 +6,7 @@
 
     <groupId>jp.houlab.mochidsuki</groupId>
     <artifactId>AutoRoadGeneratorPlugin</artifactId>
-    <version>1.0.0</version>
+    <version>beta-1.0.0</version>
     <packaging>jar</packaging>
 
     <name>AutoRoadGeneratorPlugin</name>
